@@ -322,6 +322,40 @@ function RecruitmentFrame:SplitMessage(message, limit)
     return chunks
 end
 
+local function urlEncode(value)
+    if not value then return "" end
+    return tostring(value):gsub("([^%w%-_%.~])", function(c)
+        return string.format("%%%02X", string.byte(c))
+    end)
+end
+
+function RecruitmentFrame:GetRegionCode()
+    if GetCurrentRegion then
+        local region = GetCurrentRegion()
+        if region == 1 then return "us" end
+        if region == 2 then return "kr" end
+        if region == 3 then return "eu" end
+        if region == 4 then return "tw" end
+        if region == 5 then return "cn" end
+    end
+    return "us"
+end
+
+function RecruitmentFrame:BuildRaiderIoUrl(playerData)
+    if not playerData or not playerData.name then return nil end
+    local name = playerData.name
+    local baseName, realm = strsplit("-", name, 2)
+    if not realm or realm == "" then
+        realm = GetRealmName() or ""
+    end
+
+    local region = self:GetRegionCode()
+    return string.format("https://raider.io/characters/%s/%s/%s",
+        region,
+        urlEncode(realm),
+        urlEncode(baseName))
+end
+
 function RecruitmentFrame:SendWhisper(message, target)
     if not message or message == "" or not target or target == "" then
         return
@@ -1300,7 +1334,7 @@ function RecruitmentFrame:CreatePlayerEntry(playerData, yOffset)
 
     local nameFrame = CreateFrame("Frame", nil, entry)
     nameFrame:SetPoint("LEFT", entry, "LEFT", 8, 0) 
-    nameFrame:SetSize(150, 20)
+    nameFrame:SetSize(110, 20)
     nameFrame:EnableMouse(true)
     
     local nameText = nameFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -1327,9 +1361,24 @@ function RecruitmentFrame:CreatePlayerEntry(playerData, yOffset)
     nameFrame:SetScript("OnMouseUp", function(self)
         nameText:SetTextColor(classColor.r, classColor.g, classColor.b)
     end)
+
+    local rioBtn = CreateFrame("Button", nil, entry, "UIPanelButtonTemplate")
+    rioBtn:SetPoint("LEFT", nameText, "RIGHT", 6, 0)
+    rioBtn:SetSize(28, 16)
+    rioBtn:SetText("RIO")
+    rioBtn:SetScript("OnClick", function()
+        local url = RecruitmentFrame:BuildRaiderIoUrl(playerData)
+        if not url then return end
+        if ChatFrame_OpenChat then
+            ChatFrame_OpenChat(url)
+        else
+            print(url)
+        end
+    end)
+    if theme then theme:StyleButton(rioBtn, false) end
     
     local levelText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    levelText:SetPoint("LEFT", nameText, "RIGHT", 20, 0)
+    levelText:SetPoint("LEFT", rioBtn, "RIGHT", 10, 0)
     levelText:SetText("Level " .. playerData.level)
     levelText:SetTextColor(0.8, 0.8, 0.8)
     
