@@ -34,6 +34,10 @@
         frame.title:SetFontObject("GameFontHighlight")
         frame.title:SetPoint("LEFT", frame.TitleBg, "LEFT", 5, 0)
         frame.title:SetText("Fast Guild Recruiter")
+
+        if ns.Theme then
+            ns.Theme:ApplyFrame(frame, "Fast Guild Recruiter")
+        end
         
         -- Create content area
         local content = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
@@ -60,17 +64,21 @@
     function MainFrame:CreateContent()
         local content = frame.contentChild
         local yOffset = -10
+        local theme = ns.Theme
+        local panelWidth = 360
         
-        -- Status section (keep existing code)
-        local statusLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        statusLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 10, yOffset)
-        statusLabel:SetText("Addon Status")
-        yOffset = yOffset - 30
-        
-        local statusText = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        statusText:SetPoint("TOPLEFT", content, "TOPLEFT", 20, yOffset)
+        -- Status section
+        local statusPanel = theme and theme:CreatePanel(content, panelWidth, 120) or CreateFrame("Frame", nil, content)
+        statusPanel:SetPoint("TOPLEFT", content, "TOPLEFT", 10, yOffset)
+
+        local statusLabel = theme and theme:CreateSectionHeader(statusPanel, "Addon Status")
+            or statusPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        statusLabel:SetPoint("TOPLEFT", statusPanel, "TOPLEFT", 12, -10)
+
+        local statusText = statusPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        statusText:SetPoint("TOPLEFT", statusPanel, "TOPLEFT", 12, -35)
         statusText:SetJustifyH("LEFT")
-        statusText:SetWidth(350)
+        statusText:SetWidth(panelWidth - 24)
         
         local function updateStatus()
             local status = {}
@@ -94,19 +102,20 @@
         
         updateStatus()
         frame.updateStatus = updateStatus
-        yOffset = yOffset - 120
+        yOffset = yOffset - 130
         
         -- RECRUITMENT SECTION
-        local recruitmentLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        recruitmentLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 10, yOffset)
-        recruitmentLabel:SetText("Guild Recruitment")
-        recruitmentLabel:SetTextColor(0.24, 0.73, 0.85)
-        yOffset = yOffset - 30
+        local recruitmentPanel = theme and theme:CreatePanel(content, panelWidth, 90) or CreateFrame("Frame", nil, content)
+        recruitmentPanel:SetPoint("TOPLEFT", content, "TOPLEFT", 10, yOffset)
+
+        local recruitmentLabel = theme and theme:CreateSectionHeader(recruitmentPanel, "Guild Recruitment")
+            or recruitmentPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        recruitmentLabel:SetPoint("TOPLEFT", recruitmentPanel, "TOPLEFT", 12, -10)
         
         -- Regular recruitment button
-        local recruitBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-        recruitBtn:SetPoint("TOPLEFT", content, "TOPLEFT", 20, yOffset)
-        recruitBtn:SetSize(200, 35)
+        local recruitBtn = CreateFrame("Button", nil, recruitmentPanel, "UIPanelButtonTemplate")
+        recruitBtn:SetPoint("TOPLEFT", recruitmentPanel, "TOPLEFT", 12, -35)
+        recruitBtn:SetSize(160, 30)
         recruitBtn:SetText("Normal Mode")
         recruitBtn:SetScript("OnClick", function()
             print("[FGR] Opening recruitment window...")
@@ -121,6 +130,7 @@
                 print("|cFFFF0000[FGR]|r Recruitment system not available")
             end
         end)
+        if theme then theme:StyleButton(recruitBtn, true) end
         
         recruitBtn:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -133,9 +143,9 @@
             GameTooltip:Hide()
         end)
         
-        local compactRecruitBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+        local compactRecruitBtn = CreateFrame("Button", nil, recruitmentPanel, "UIPanelButtonTemplate")
         compactRecruitBtn:SetPoint("LEFT", recruitBtn, "RIGHT", 10, 0) -- Place it to the right of the regular button
-        compactRecruitBtn:SetSize(180, 35)
+        compactRecruitBtn:SetSize(150, 30)
         compactRecruitBtn:SetText("Compact Mode")
         compactRecruitBtn:SetScript("OnClick", function()
             print("[FGR] Opening recruitment window in compact mode...")
@@ -151,6 +161,7 @@
                 print("|cFFFF0000[FGR]|r Recruitment system not available")
             end
         end)
+        if theme then theme:StyleButton(compactRecruitBtn, false) end
         
         -- Tooltip for compact recruitment button
         compactRecruitBtn:SetScript("OnEnter", function(self)
@@ -164,17 +175,19 @@
             GameTooltip:Hide()
         end)
         
-        yOffset = yOffset - 50
+        yOffset = yOffset - 105
         
         -- Rest of your existing code (Buttons section, etc.)
-        local buttonsLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        buttonsLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 10, yOffset)
-        buttonsLabel:SetText("Quick Actions")
-        yOffset = yOffset - 30
+        local actionsPanel = theme and theme:CreatePanel(content, panelWidth, 70) or CreateFrame("Frame", nil, content)
+        actionsPanel:SetPoint("TOPLEFT", content, "TOPLEFT", 10, yOffset)
+
+        local buttonsLabel = theme and theme:CreateSectionHeader(actionsPanel, "Quick Actions")
+            or actionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        buttonsLabel:SetPoint("TOPLEFT", actionsPanel, "TOPLEFT", 12, -10)
         
         -- Settings button (keep existing)
-        local settingsBtn = CreateFrame("Button", nil, content, "GameMenuButtonTemplate")
-        settingsBtn:SetPoint("TOPLEFT", content, "TOPLEFT", 20, yOffset)
+        local settingsBtn = CreateFrame("Button", nil, actionsPanel, "GameMenuButtonTemplate")
+        settingsBtn:SetPoint("TOPLEFT", actionsPanel, "TOPLEFT", 12, -32)
         settingsBtn:SetSize(120, 22)
         settingsBtn:SetText("Settings")
         settingsBtn:SetNormalFontObject("GameFontNormal")
@@ -193,18 +206,21 @@
                 print("|cFFFF0000[FGR]|r Settings not available")
             end
         end)
+        if theme then theme:StyleButton(settingsBtn, true) end
 
-        yOffset = yOffset - 35
+        yOffset = yOffset - 85
 
-        local helpLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        helpLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 10, yOffset)
-        helpLabel:SetText("Commands")
-        yOffset = yOffset - 25
+        local commandsPanel = theme and theme:CreatePanel(content, panelWidth, 140) or CreateFrame("Frame", nil, content)
+        commandsPanel:SetPoint("TOPLEFT", content, "TOPLEFT", 10, yOffset)
+
+        local helpLabel = theme and theme:CreateSectionHeader(commandsPanel, "Commands")
+            or commandsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        helpLabel:SetPoint("TOPLEFT", commandsPanel, "TOPLEFT", 12, -10)
         
-        local helpText = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        helpText:SetPoint("TOPLEFT", content, "TOPLEFT", 20, yOffset)
+        local helpText = commandsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        helpText:SetPoint("TOPLEFT", commandsPanel, "TOPLEFT", 12, -35)
         helpText:SetJustifyH("LEFT")
-        helpText:SetWidth(350)
+        helpText:SetWidth(panelWidth - 24)
         
         local commands = {
             "/fgr - Toggle this window",

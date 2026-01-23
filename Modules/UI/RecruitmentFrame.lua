@@ -11,6 +11,7 @@ local currentFilter = "ALL"
 local lastScanTime = 0
 local scanCooldown = 15 -- Fixed at 15 seconds
 local playerCheckboxes = {}
+local MAX_WHISPER_LENGTH = 220
 
 -- Reliable, one-time event frame for WHO_LIST_UPDATE (do not register per-scan)
 local eventFrame = CreateFrame("Frame")
@@ -143,35 +144,22 @@ function RecruitmentFrame:HandleWhoQueryFailure(reason)
 
     if self.scanButton then
         self.scanButton:SetEnabled(true)
-        if self.isClassScanMode then
-            local nextIndex = (self.currentClassIndex or 1) + 1
-            if nextIndex <= #self.selectedClassList then
-                local nextClass = self.selectedClassList[nextIndex]
-                self.scanButton:SetText("Next: " .. nextClass)
-            else
-                self.scanButton:SetText("Scan")
-            end
-        else
-            self.scanButton:SetText("Scan")
-        end
+        self.scanButton:SetText("Run")
+        self:UpdateNextClassIndicator()
     end
 end
 
 function RecruitmentFrame:ReEnableScanButton()
     if self.scanButton then
         self.scanButton:SetEnabled(true)
-        if self.isClassScanMode then
+        self.scanButton:SetText("Run")
+        if self.isClassScanMode and self.selectedClassList and #self.selectedClassList > 0 then
             local nextIndex = (self.currentClassIndex or 1) + 1
-            if nextIndex <= #self.selectedClassList then
-                local nextClass = self.selectedClassList[nextIndex]
-                self.scanButton:SetText("Next: " .. nextClass)
-            else
-                self.scanButton:SetText("Scan")
+            if nextIndex > #self.selectedClassList then
                 self:ResetClassScanMode()
             end
-        else
-            self.scanButton:SetText("Scan")
         end
+        self:UpdateNextClassIndicator()
     end
     self:StartCooldownTimer()
 end
@@ -208,8 +196,10 @@ function RecruitmentFrame:Show()
         self:CreateFrame()
     end
     
-    -- Skip WindowManager for now - use direct approach
-    if self.frame then
+    if ns.WindowManager then
+        self:RegisterWindowIfNeeded()
+        ns.WindowManager:ShowWindow("recruitment")
+    elseif self.frame then
         self.frame:Show()
         self:RefreshUI()
         print("[FGR] Recruitment frame shown directly")
@@ -217,7 +207,9 @@ function RecruitmentFrame:Show()
 end
 
 function RecruitmentFrame:Hide()
-    if self.frame then
+    if ns.WindowManager and self._registeredWindow then
+        ns.WindowManager:HideWindow("recruitment")
+    elseif self.frame then
         self.frame:Hide()
         print("[FGR] Recruitment frame hidden directly")
     end
@@ -247,6 +239,10 @@ function RecruitmentFrame:CreateFrame()
     frame.title:SetFontObject(isCompact and "GameFontNormalSmall" or "GameFontHighlight")
     frame.title:SetPoint("LEFT", frame.TitleBg, "LEFT", 5, 0)
     frame.title:SetText(isCompact and "FGR" or "Fast Guild Recruiter - Recruitment")
+
+    if ns.Theme then
+        ns.Theme:ApplyFrame(frame, isCompact and "FGR" or "Fast Guild Recruiter - Recruitment")
+    end
     
     if frame.CloseButton then
         frame.CloseButton:SetScript("OnClick", function()
@@ -267,27 +263,115 @@ function RecruitmentFrame:CreateFrame()
     self:CreateStatusSection()
     
     self.isInitialized = true
+    self:RegisterWindowIfNeeded()
+end
+
+function RecruitmentFrame:RegisterWindowIfNeeded()
+    if self._registeredWindow or not ns.WindowManager or not self.frame then
+        return
+    end
+
+    ns.WindowManager:RegisterWindow("recruitment", self.frame, function()
+        if self.frame then
+            self.frame:Show()
+            self:RefreshUI()
+        end
+    end, function()
+        if self.frame then
+            self.frame:Hide()
+        end
+    end)
+
+    self._registeredWindow = true
+end
+
+function RecruitmentFrame:SplitMessage(message, limit)
+    local chunks = {}
+    if not message or message == "" then
+        return chunks
+    end
+
+    local current = ""
+    for word in string.gmatch(message, "%S+") do
+        if #word > limit then
+            if current ~= "" then
+                table.insert(chunks, current)
+                current = ""
+            end
+            local i = 1
+            while i <= #word do
+                table.insert(chunks, string.sub(word, i, i + limit - 1))
+                i = i + limit
+            end
+        else
+            if current == "" then
+                current = word
+            elseif #current + 1 + #word <= limit then
+                current = current .. " " .. word
+            else
+                table.insert(chunks, current)
+                current = word
+            end
+        end
+    end
+
+    if current ~= "" then
+        table.insert(chunks, current)
+    end
+
+    return chunks
+end
+
+function RecruitmentFrame:SendWhisper(message, target)
+    if not message or message == "" or not target or target == "" then
+        return
+    end
+
+    local chunks = self:SplitMessage(message, MAX_WHISPER_LENGTH)
+    if #chunks == 0 then
+        return
+    end
+
+    for i, chunk in ipairs(chunks) do
+        if i == 1 then
+            SendChatMessage(chunk, "WHISPER", nil, target)
+        else
+            C_Timer.After((i - 1) * 0.3, function()
+                SendChatMessage(chunk, "WHISPER", nil, target)
+            end)
+        end
+    end
+
+    if #chunks > 1 then
+        self:UpdateStatus("Message split into " .. #chunks .. " parts", "orange")
+    end
 end
 
 function RecruitmentFrame:CreateScanSection()
     local frame = self.frame
     local isCompact = self.isCompactMode
     local yOffset = isCompact and -30 or -80
+    local theme = ns.Theme
 
     if isCompact then
         -- Ultra-compact: Just scan button and basic info
         local scanBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
         scanBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, yOffset)
         scanBtn:SetSize(80, 22)
-        scanBtn:SetText("Scan")
+        scanBtn:SetText("Run")
         scanBtn:SetScript("OnClick", function()
             self:StartPlayerScan()
         end)
         self.scanButton = scanBtn
 
-        -- Cooldown text right next to button
+        local nextClassText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        nextClassText:SetPoint("LEFT", scanBtn, "RIGHT", 8, 0)
+        nextClassText:SetText("")
+        nextClassText:SetTextColor(0.8, 0.8, 1)
+        self.nextClassText = nextClassText
+
         local cooldownText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        cooldownText:SetPoint("LEFT", scanBtn, "RIGHT", 8, 0)
+        cooldownText:SetPoint("TOPLEFT", scanBtn, "BOTTOMLEFT", 0, -4)
         cooldownText:SetText("")
         cooldownText:SetTextColor(1, 0.5, 0)
         self.cooldownText = cooldownText
@@ -297,17 +381,28 @@ function RecruitmentFrame:CreateScanSection()
         local scanHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         scanHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, yOffset)
         scanHeader:SetText("Scanning:")
-        scanHeader:SetTextColor(0.24, 0.73, 0.85)
+        if theme then
+            local r, g, b = theme:GetColor("accent")
+            scanHeader:SetTextColor(r, g, b)
+        else
+            scanHeader:SetTextColor(0.24, 0.73, 0.85)
+        end
         yOffset = yOffset - 25
 
         local scanBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
         scanBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, yOffset)
         scanBtn:SetSize(120, 30)
-        scanBtn:SetText("Scan")
+        scanBtn:SetText("Run")
         scanBtn:SetScript("OnClick", function()
             self:StartPlayerScan()
         end)
         self.scanButton = scanBtn
+
+        local nextClassText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        nextClassText:SetPoint("LEFT", scanBtn, "RIGHT", 10, 0)
+        nextClassText:SetText("")
+        nextClassText:SetTextColor(0.8, 0.8, 1)
+        self.nextClassText = nextClassText
 
         local cooldownText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
         cooldownText:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, yOffset - 35)
@@ -315,6 +410,36 @@ function RecruitmentFrame:CreateScanSection()
         cooldownText:SetTextColor(1, 0.5, 0)
         self.cooldownText = cooldownText
     end
+end
+
+function RecruitmentFrame:UpdateNextClassIndicator()
+    if not self.nextClassText then return end
+    if self.isClassScanMode and self.selectedClassList and #self.selectedClassList > 0 then
+        local nextIndex = (self.currentClassIndex or 1) + 1
+        if nextIndex <= #self.selectedClassList then
+            local nextClass = self.selectedClassList[nextIndex]
+            self.nextClassText:SetText("Next: " .. nextClass .. " (" .. nextIndex .. "/" .. #self.selectedClassList .. ")")
+            self._readyForNextClass = true
+            return
+        end
+    end
+    self.nextClassText:SetText("")
+    self._readyForNextClass = false
+end
+
+function RecruitmentFrame:UpdateNextClassIndicator()
+    if not self.nextClassText then return end
+    if self.isClassScanMode and self.selectedClassList and #self.selectedClassList > 0 then
+        local nextIndex = (self.currentClassIndex or 1) + 1
+        if nextIndex <= #self.selectedClassList then
+            local nextClass = self.selectedClassList[nextIndex]
+            self.nextClassText:SetText("Next: " .. nextClass .. " (" .. nextIndex .. "/" .. #self.selectedClassList .. ")")
+            self._readyForNextClass = true
+            return
+        end
+    end
+    self.nextClassText:SetText("")
+    self._readyForNextClass = false
 end
 
 function RecruitmentFrame:CreateFilterSection()
@@ -522,11 +647,17 @@ end
 function RecruitmentFrame:CreateMessageSection()
     local frame = self.frame
     local yOffset = -260
+    local theme = ns.Theme
 
     local msgHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     msgHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, yOffset)
     msgHeader:SetText("Invite style:")
-    msgHeader:SetTextColor(0.24, 0.73, 0.85)
+    if theme then
+        local r, g, b = theme:GetColor("accent")
+        msgHeader:SetTextColor(r, g, b)
+    else
+        msgHeader:SetTextColor(0.24, 0.73, 0.85)
+    end
 
     local msgDropdown = CreateFrame("Frame", nil, frame, "UIDropDownMenuTemplate")
     msgDropdown:SetPoint("TOPLEFT", frame, "TOPLEFT", 140, -300)
@@ -578,6 +709,7 @@ function RecruitmentFrame:CreatePlayerList()
     local frame = self.frame
     local isCompact = self.isCompactMode
     local yOffset = isCompact and -95 or -280
+    local theme = ns.Theme
 
     local scrollFrame = CreateFrame("ScrollFrame", nil, frame)
 
@@ -586,7 +718,12 @@ function RecruitmentFrame:CreatePlayerList()
         local listHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
         listHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, yOffset)
         listHeader:SetText("Players: 0")
-        listHeader:SetTextColor(0.24, 0.73, 0.85)
+        if theme then
+            local r, g, b = theme:GetColor("accent")
+            listHeader:SetTextColor(r, g, b)
+        else
+            listHeader:SetTextColor(0.24, 0.73, 0.85)
+        end
         self.listHeader = listHeader
 
         -- Tiny select buttons
@@ -617,7 +754,12 @@ function RecruitmentFrame:CreatePlayerList()
         local listHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         listHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, yOffset)
         listHeader:SetText("Found Players: 0")
-        listHeader:SetTextColor(0.24, 0.73, 0.85)
+        if theme then
+            local r, g, b = theme:GetColor("accent")
+            listHeader:SetTextColor(r, g, b)
+        else
+            listHeader:SetTextColor(0.24, 0.73, 0.85)
+        end
         self.listHeader = listHeader
 
         local selectAllBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -646,11 +788,21 @@ function RecruitmentFrame:CreatePlayerList()
     -- Now scrollFrame is in scope for both modes - set up background
     local scrollBg = scrollFrame:CreateTexture(nil, "BACKGROUND")
     scrollBg:SetAllPoints(scrollFrame)
-    scrollBg:SetColorTexture(0.08, 0.08, 0.12, 0.85)
+    if theme then
+        local r, g, b, a = theme:GetColor("panel")
+        scrollBg:SetColorTexture(r, g, b, a)
+    else
+        scrollBg:SetColorTexture(0.08, 0.08, 0.12, 0.85)
+    end
 
     local scrollBorder = scrollFrame:CreateTexture(nil, "BORDER")
     scrollBorder:SetAllPoints(scrollFrame)
-    scrollBorder:SetColorTexture(0.24, 0.73, 0.85, 0.4)
+    if theme then
+        local r, g, b, a = theme:GetColor("panelBorder")
+        scrollBorder:SetColorTexture(r, g, b, a)
+    else
+        scrollBorder:SetColorTexture(0.24, 0.73, 0.85, 0.4)
+    end
     scrollBg:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 1, -1)
     scrollBg:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", -1, 1)
 
@@ -678,6 +830,7 @@ end
 function RecruitmentFrame:CreateActionButtons()
     local frame = self.frame
     local isCompact = self.isCompactMode
+    local theme = ns.Theme
 
     if isCompact then
         local buttonHeight = 18
@@ -692,6 +845,7 @@ function RecruitmentFrame:CreateActionButtons()
         end)
         sendInviteBtn:Hide()
         self.sendInviteBtn = sendInviteBtn
+        if theme then theme:StyleButton(sendInviteBtn, true) end
 
         local blacklistBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
         blacklistBtn:SetPoint("LEFT", sendInviteBtn, "RIGHT", gap, 0)
@@ -702,6 +856,7 @@ function RecruitmentFrame:CreateActionButtons()
         end)
         blacklistBtn:Hide()
         self.blacklistBtn = blacklistBtn
+        if theme then theme:StyleButton(blacklistBtn, false) end
 
         local clearBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
         clearBtn:SetPoint("LEFT", blacklistBtn, "RIGHT", gap, 0)
@@ -712,6 +867,7 @@ function RecruitmentFrame:CreateActionButtons()
         end)
         clearBtn:Hide()
         self.clearBtn = clearBtn
+        if theme then theme:StyleButton(clearBtn, false) end
 
         local settingsBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
         settingsBtn:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 8)
@@ -722,6 +878,7 @@ function RecruitmentFrame:CreateActionButtons()
                 ns.SettingsManager:OpenSettings()
             end
         end)
+        if theme then theme:StyleButton(settingsBtn, false) end
         
     else
         -- Normal mode (keep existing larger buttons)
@@ -734,6 +891,7 @@ function RecruitmentFrame:CreateActionButtons()
         end)
         sendInviteBtn:Hide()
         self.sendInviteBtn = sendInviteBtn
+        if theme then theme:StyleButton(sendInviteBtn, true) end
 
         local blacklistBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
         blacklistBtn:SetPoint("LEFT", sendInviteBtn, "RIGHT", 10, 0)
@@ -744,6 +902,7 @@ function RecruitmentFrame:CreateActionButtons()
         end)
         blacklistBtn:Hide()
         self.blacklistBtn = blacklistBtn
+        if theme then theme:StyleButton(blacklistBtn, false) end
 
         local clearBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
         clearBtn:SetPoint("LEFT", blacklistBtn, "RIGHT", 10, 0)
@@ -754,6 +913,7 @@ function RecruitmentFrame:CreateActionButtons()
         end)
         clearBtn:Hide()
         self.clearBtn = clearBtn
+        if theme then theme:StyleButton(clearBtn, false) end
 
         local settingsBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
         settingsBtn:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -15, 20)
@@ -764,6 +924,7 @@ function RecruitmentFrame:CreateActionButtons()
                 ns.SettingsManager:OpenSettings()
             end
         end)
+        if theme then theme:StyleButton(settingsBtn, false) end
     end
 end
 
@@ -805,12 +966,20 @@ function RecruitmentFrame:SendNextInvite()
     -- Find the next selected player as before
     local nextToSend = nil
     for name, data in pairs(selectedPlayers) do
-        nextToSend = { name = name, data = data }
-        break
+        if not foundPlayers[name] then
+            selectedPlayers[name] = nil
+        elseif not self:PassesFilters(data) then
+            selectedPlayers[name] = nil
+        else
+            nextToSend = { name = name, data = data }
+            break
+        end
     end
 
     if not nextToSend then
-        self:UpdateStatus("No players selected", "orange")
+        self:UpdateStatus("No valid selected players", "orange")
+        self:UpdateSelectionCount()
+        self:UpdateActionButtonVisibility()
         return
     end
 
@@ -828,14 +997,14 @@ function RecruitmentFrame:SendNextInvite()
         self.sessionStats.invitesSent = (self.sessionStats.invitesSent or 0) + 1
         if self.selectedMessage and self.selectedMessage.message then
             local message = self:FormatMessage(self.selectedMessage.message, nextToSend.name)
-            SendChatMessage(message, "WHISPER", nil, nextToSend.name)
+            self:SendWhisper(message, nextToSend.name)
             -- print("|cFF3EB9D8[FGR]|r Sent guild invite and message to: " .. nextToSend.name)
         end
 
     elseif im == "just_message" then
         if self.selectedMessage and self.selectedMessage.message then
             local message = self:FormatMessage(self.selectedMessage.message, nextToSend.name)
-            SendChatMessage(message, "WHISPER", nil, nextToSend.name)
+            self:SendWhisper(message, nextToSend.name)
             self.sessionStats.messagesOnly = (self.sessionStats.messagesOnly or 0) + 1
             -- print("|cFF3EB9D8[FGR]|r Sent message to: " .. nextToSend.name)
         end
@@ -914,9 +1083,9 @@ function RecruitmentFrame:StartPlayerScan()
     end
 
     if self.isClassScanMode and self.selectedClassList then
-        local buttonText = self.scanButton:GetText()
-        if buttonText and buttonText:match("^Next:") then
+        if self._readyForNextClass then
             self.currentClassIndex = (self.currentClassIndex or 1) + 1
+            self._readyForNextClass = false
             -- print("|cFF3EB9D8[FGR]|r Manually advancing to class " .. self.currentClassIndex)
         end
     end
@@ -932,8 +1101,9 @@ function RecruitmentFrame:StartPlayerScan()
     statusMsg = statusMsg .. "..."
 
     self:UpdateStatus(statusMsg, "yellow")
-    self.scanButton:SetText("Scanning...")
+    self.scanButton:SetText("Run")
     self.scanButton:SetEnabled(false)
+    self:UpdateNextClassIndicator()
 
     if not self.isClassScanMode or (self.currentClassIndex or 1) == 1 then
         foundPlayers = {}
@@ -1057,6 +1227,11 @@ end
 
 function RecruitmentFrame:RefreshPlayerList()
     playerCheckboxes = {}
+    for name in pairs(selectedPlayers) do
+        if not foundPlayers[name] then
+            selectedPlayers[name] = nil
+        end
+    end
     for i = self.playerScrollChild:GetNumChildren(), 1, -1 do
         local child = select(i, self.playerScrollChild:GetChildren())
         child:Hide()
@@ -1078,6 +1253,7 @@ end
 
 function RecruitmentFrame:CreatePlayerEntry(playerData, yOffset)
     local classColor = RAID_CLASS_COLORS[playerData.class] or {r=1, g=1, b=1}
+    local theme = ns.Theme
     local entry = CreateFrame("Frame", nil, self.playerScrollChild)
     entry:SetPoint("TOPLEFT", self.playerScrollChild, "TOPLEFT", 5, yOffset)
     entry:SetSize(self.playerScrollChild:GetWidth() - 10, 23)
@@ -1086,10 +1262,19 @@ function RecruitmentFrame:CreatePlayerEntry(playerData, yOffset)
     bg:SetAllPoints(entry)
 
     local rowIndex = math.abs(yOffset / 27)
-    if (rowIndex % 2) == 0 then
-        bg:SetColorTexture(0.12, 0.12, 0.16, 0.6) -- Slightly lighter
+    if theme then
+        local r, g, b, a = theme:GetColor("panel")
+        if (rowIndex % 2) == 0 then
+            bg:SetColorTexture(r, g, b, a)
+        else
+            bg:SetColorTexture(r * 0.9, g * 0.9, b * 0.9, a)
+        end
     else
-        bg:SetColorTexture(0.08, 0.08, 0.12, 0.6) -- Slightly darker
+        if (rowIndex % 2) == 0 then
+            bg:SetColorTexture(0.12, 0.12, 0.16, 0.6) -- Slightly lighter
+        else
+            bg:SetColorTexture(0.08, 0.08, 0.12, 0.6) -- Slightly darker
+        end
     end
 
     local classBorder = entry:CreateTexture(nil, "OVERLAY")
@@ -1100,7 +1285,7 @@ function RecruitmentFrame:CreatePlayerEntry(playerData, yOffset)
     local checkbox = CreateFrame("CheckButton", nil, entry, "InterfaceOptionsCheckButtonTemplate")
     checkbox:SetPoint("LEFT", entry, "LEFT", 8, 0) 
     checkbox:SetSize(20, 20)
-    checkbox:SetChecked(selectedPlayers[playerData.name] == playerData)
+    checkbox:SetChecked(selectedPlayers[playerData.name] ~= nil)
     checkbox:SetScript("OnClick", function(self)
         if self:GetChecked() then
             selectedPlayers[playerData.name] = playerData
@@ -2189,13 +2374,13 @@ function RecruitmentFrame:ProcessInviteQueue(inviteQueue)
         self.sessionStats.invitesSent = (self.sessionStats.invitesSent or 0) + 1
         if self.selectedMessage and self.selectedMessage.message then
             local message = self:FormatMessage(self.selectedMessage.message, player.name)
-            SendChatMessage(message, "WHISPER", nil, player.name)
+            self:SendWhisper(message, player.name)
             -- print("|cFF3EB9D8[FGR]|r Sent guild invite and message to: " .. player.name)
         end
     elseif self.inviteMode == "just_message" then
         if self.selectedMessage and self.selectedMessage.message then
             local message = self:FormatMessage(self.selectedMessage.message, player.name)
-            SendChatMessage(message, "WHISPER", nil, player.name)
+            self:SendWhisper(message, player.name)
             self.sessionStats.messagesOnly = (self.sessionStats.messagesOnly or 0) + 1
             -- print("|cFF3EB9D8[FGR]|r Sent message to: " .. player.name)
         end
@@ -2367,26 +2552,21 @@ function RecruitmentFrame:StartCooldownTimer()
         local remaining = scanCooldown - (currentTime - lastScanTime)
         if remaining > 0 then
             self.scanButton:SetEnabled(false)
-            self.scanButton:SetText(string.format("Wait %ds", math.ceil(remaining)))
+            self.scanButton:SetText("Run")
             self.cooldownText:SetText(string.format("Next scan available in: %d seconds", math.ceil(remaining)))
+            self:UpdateNextClassIndicator()
             C_Timer.After(1, updateCooldown)
         else
             self.scanButton:SetEnabled(true)
             self.cooldownText:SetText("")
+            self.scanButton:SetText("Run")
             if self.isClassScanMode and self.selectedClassList and #self.selectedClassList > 0 then
                 local nextIndex = (self.currentClassIndex or 1) + 1
-                if nextIndex <= #self.selectedClassList then
-                    local nextClass = self.selectedClassList[nextIndex]
-                    self.scanButton:SetText("Next: " .. nextClass .. " (" .. nextIndex .. "/" .. #self.selectedClassList .. ")")
-                    -- print("|cFF3EB9D8[FGR]|r Ready for next class: " .. nextClass .. " (click to continue)")
-                else
-                    self.scanButton:SetText("Scan")
+                if nextIndex > #self.selectedClassList then
                     self:ResetClassScanMode()
-                    -- print("|cFF3EB9D8[FGR]|r All classes completed")
                 end
-            else
-                self.scanButton:SetText("Scan")
             end
+            self:UpdateNextClassIndicator()
             self:UpdateClassFilterDisplay()
         end
     end
@@ -2406,6 +2586,7 @@ function RecruitmentFrame:RefreshUI()
     self:UpdateLevelDisplay()
     self:UpdateSessionStats()
     self:UpdateClassFilterDisplay()
+    self:UpdateNextClassIndicator()
     if self.messageDropdown then
         local recruitmentFrameRef = self
         UIDropDownMenu_Initialize(self.messageDropdown, function(dropdown, level)

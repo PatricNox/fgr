@@ -67,6 +67,10 @@ function SettingsManager:CreateTabbedSettingsFrame()
     frame.title:SetFontObject("GameFontHighlight")
     frame.title:SetPoint("LEFT", frame.TitleBg, "LEFT", 5, 0)
     frame.title:SetText("Fast Guild Recruiter Settings")
+
+    if ns.Theme then
+        ns.Theme:ApplyFrame(frame, "Fast Guild Recruiter Settings")
+    end
     
     -- Create tab system
     self:CreateTabs(frame)
@@ -75,6 +79,14 @@ function SettingsManager:CreateTabbedSettingsFrame()
     frame.contentFrame = CreateFrame("Frame", nil, frame)
     frame.contentFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -80) -- Leave space for tabs and title
     frame.contentFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 20)
+
+    if ns.Theme and not frame.contentFrame.fgrBg then
+        local r, g, b, a = ns.Theme:GetColor("panel")
+        local bg = frame.contentFrame:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints(frame.contentFrame)
+        bg:SetColorTexture(r, g, b, a * 0.7)
+        frame.contentFrame.fgrBg = bg
+    end
     
     -- Create a simple scroll frame without template
     frame.scrollFrame = CreateFrame("ScrollFrame", nil, frame.contentFrame)
@@ -169,6 +181,7 @@ function SettingsManager:CreateTabs(frame)
     local tabWidth = 80
     local tabHeight = 25
     local xOffset = 20
+    local theme = ns.Theme
     
     for i, tabData in ipairs(TABS) do
         -- Create a simple button
@@ -179,7 +192,12 @@ function SettingsManager:CreateTabs(frame)
         -- Create background texture manually
         local bg = tab:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints(tab)
-        bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
+        if theme then
+            local r, g, b = theme:GetColor("panel")
+            bg:SetColorTexture(r, g, b, 0.6)
+        else
+            bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
+        end
         tab.bg = bg
         
         -- Create text
@@ -199,15 +217,25 @@ function SettingsManager:CreateTabs(frame)
         -- Hover effects
         tab:SetScript("OnEnter", function(self)
             if not self.isSelected then
-                self.bg:SetColorTexture(0.3, 0.3, 0.3, 0.8)
-                self.text:SetTextColor(1, 1, 1)
+                if theme then
+                    local r, g, b, a = theme:GetColor("accentSoft")
+                    self.bg:SetColorTexture(r, g, b, a)
+                    self.text:SetTextColor(1, 1, 1)
+                else
+                    self.bg:SetColorTexture(0.3, 0.3, 0.3, 0.8)
+                    self.text:SetTextColor(1, 1, 1)
+                end
             end
         end)
         
         tab:SetScript("OnLeave", function(self)
             if not self.isSelected then
-                self.bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-                self.text:SetTextColor(0.7, 0.7, 0.7)
+                if theme then
+                    theme:StyleTab(self, false)
+                else
+                    self.bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
+                    self.text:SetTextColor(0.7, 0.7, 0.7)
+                end
             end
         end)
         
@@ -219,31 +247,48 @@ function SettingsManager:CreateTabs(frame)
     if frame.tabs["general"] then
         local firstTab = frame.tabs["general"]
         firstTab.isSelected = true
-        firstTab.bg:SetColorTexture(0.24, 0.73, 0.85, 0.8) -- Blue background for selected
-        firstTab.text:SetTextColor(1, 1, 1) -- White text for selected
+        if theme then
+            theme:StyleTab(firstTab, true)
+        else
+            firstTab.bg:SetColorTexture(0.24, 0.73, 0.85, 0.8) -- Blue background for selected
+            firstTab.text:SetTextColor(1, 1, 1) -- White text for selected
+        end
     end
     
     -- Set initial colors for unselected tabs
     for id, tab in pairs(frame.tabs) do
         if not tab.isSelected then
-            tab.text:SetTextColor(0.7, 0.7, 0.7)
+            if theme then
+                theme:StyleTab(tab, false)
+            else
+                tab.text:SetTextColor(0.7, 0.7, 0.7)
+            end
         end
     end
 end
 
 function SettingsManager:ShowTab(tabId)
     if not self.settingsFrame then return end
+    local theme = ns.Theme
     
     -- Update tab selection
     for id, tab in pairs(self.settingsFrame.tabs) do
         if id == tabId then
             tab.isSelected = true
-            tab.bg:SetColorTexture(0.24, 0.73, 0.85, 0.8)
-            tab.text:SetTextColor(1, 1, 1)
+            if theme then
+                theme:StyleTab(tab, true)
+            else
+                tab.bg:SetColorTexture(0.24, 0.73, 0.85, 0.8)
+                tab.text:SetTextColor(1, 1, 1)
+            end
         else
             tab.isSelected = false
-            tab.bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-            tab.text:SetTextColor(0.7, 0.7, 0.7)
+            if theme then
+                theme:StyleTab(tab, false)
+            else
+                tab.bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
+                tab.text:SetTextColor(0.7, 0.7, 0.7)
+            end
         end
     end
     
@@ -301,12 +346,18 @@ end
 
 function SettingsManager:CreateGeneralTab(parent)
     local yOffset = -10
+    local theme = ns.Theme
     
     -- Header
     local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     header:SetText("General Settings")
-    header:SetTextColor(0.24, 0.73, 0.85)
+    if theme then
+        local r, g, b = theme:GetColor("accent")
+        header:SetTextColor(r, g, b)
+    else
+        header:SetTextColor(0.24, 0.73, 0.85)
+    end
     yOffset = yOffset - 30
     
     -- Notes
@@ -395,7 +446,12 @@ function SettingsManager:CreateGeneralTab(parent)
     local scanDisplay = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     scanDisplay:SetPoint("LEFT", scanLabel, "RIGHT", 20, 0)
     scanDisplay:SetText("15 seconds (Fixed)")
-    scanDisplay:SetTextColor(0.24, 0.73, 0.85)
+    if theme then
+        local r, g, b = theme:GetColor("accent")
+        scanDisplay:SetTextColor(r, g, b)
+    else
+        scanDisplay:SetTextColor(0.24, 0.73, 0.85)
+    end
     
     local scanWarning = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
     scanWarning:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset - 15)
@@ -433,11 +489,17 @@ end
 
 function SettingsManager:CreateRecruitmentTab(parent)
     local yOffset = -10
+    local theme = ns.Theme
     
     local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     header:SetText("Recruitment Settings")
-    header:SetTextColor(0.24, 0.73, 0.85)
+    if theme then
+        local r, g, b = theme:GetColor("accent")
+        header:SetTextColor(r, g, b)
+    else
+        header:SetTextColor(0.24, 0.73, 0.85)
+    end
     yOffset = yOffset - 40
     
     -- Level Range Section
@@ -905,11 +967,17 @@ end
 
 function SettingsManager:CreateMessagesTab(parent)
     local yOffset = -10
+    local theme = ns.Theme
     
     local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     header:SetText("Message Templates")
-    header:SetTextColor(0.24, 0.73, 0.85)
+    if theme then
+        local r, g, b = theme:GetColor("accent")
+        header:SetTextColor(r, g, b)
+    else
+        header:SetTextColor(0.24, 0.73, 0.85)
+    end
     yOffset = yOffset - 40
     
     -- Get the message list from the database
@@ -1292,11 +1360,17 @@ end
 
 function SettingsManager:CreateBlacklistTab(parent)
     local yOffset = -10
+    local theme = ns.Theme
     
     local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     header:SetText("Blacklist Management")
-    header:SetTextColor(0.24, 0.73, 0.85)
+    if theme then
+        local r, g, b = theme:GetColor("accent")
+        header:SetTextColor(r, g, b)
+    else
+        header:SetTextColor(0.24, 0.73, 0.85)
+    end
     yOffset = yOffset - 30
     
     -- Stats
@@ -1479,11 +1553,17 @@ end
 
 function SettingsManager:CreateAntiSpamTab(parent)
     local yOffset = -10
+    local theme = ns.Theme
     
     local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     header:SetText("Anti-Spam Management")
-    header:SetTextColor(0.24, 0.73, 0.85)
+    if theme then
+        local r, g, b = theme:GetColor("accent")
+        header:SetTextColor(r, g, b)
+    else
+        header:SetTextColor(0.24, 0.73, 0.85)
+    end
     yOffset = yOffset - 30
     
     -- Stats
@@ -1675,11 +1755,17 @@ end
 
 function SettingsManager:CreateZonesTab(parent)
     local yOffset = -10
+    local theme = ns.Theme
     
     local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     header:SetText("Zone Management")
-    header:SetTextColor(0.24, 0.73, 0.85)
+    if theme then
+        local r, g, b = theme:GetColor("accent")
+        header:SetTextColor(r, g, b)
+    else
+        header:SetTextColor(0.24, 0.73, 0.85)
+    end
     yOffset = yOffset - 40
     
     local comingSoon = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -1691,11 +1777,17 @@ end
 
 function SettingsManager:CreateAboutTab(parent)
     local yOffset = -10
+    local theme = ns.Theme
     
     local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     header:SetText("About Fast Guild Recruiter")
-    header:SetTextColor(0.24, 0.73, 0.85)
+    if theme then
+        local r, g, b = theme:GetColor("accent")
+        header:SetTextColor(r, g, b)
+    else
+        header:SetTextColor(0.24, 0.73, 0.85)
+    end
     yOffset = yOffset - 40
     
     local version = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -1726,7 +1818,12 @@ function SettingsManager:CreateAboutTab(parent)
     local header2 = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     header2:SetPoint("CENTER", parent, "CENTER", 10, yOffset)
     header2:SetText("Buy me a Coffee @ https://buymeacoffee.com/patricnoxdev")
-    header2:SetTextColor(0.24, 0.73, 0.85)
+    if theme then
+        local r, g, b = theme:GetColor("accent")
+        header2:SetTextColor(r, g, b)
+    else
+        header2:SetTextColor(0.24, 0.73, 0.85)
+    end
     yOffset = yOffset - 40
 end
 

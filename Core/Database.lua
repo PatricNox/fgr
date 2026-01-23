@@ -17,7 +17,7 @@ local DEFAULT_PROFILE_SCHEMA = {
                 keepOpen = false,
                 showContextMenu = true,
                 showAppMsgs = true,
-                minimap = { hide = false },
+                minimap = { hide = false, angle = 220, radius = 80 },
             },
             recruitment = {
                 minLevel = GetMaxPlayerLevel(),
