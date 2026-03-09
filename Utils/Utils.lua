@@ -14,19 +14,6 @@ function Utils:DeepCopy(original)
     return copy
 end
 
-function Utils:MergeTables(target, source, overwrite)
-    overwrite = overwrite ~= false
-    
-    for k, v in pairs(source) do
-        if type(v) == "table" and type(target[k]) == "table" then
-            self:MergeTables(target[k], v, overwrite)
-        elseif overwrite or target[k] == nil then
-            target[k] = v
-        end
-    end
-    return target
-end
-
 function Utils:TableSize(tbl)
     if not tbl then return 0 end
     local count = 0
@@ -81,26 +68,9 @@ function Utils:Split(str, delimiter)
     return result
 end
 
-function Utils:StartsWith(str, prefix)
-    if not str or not prefix then return false end
-    return str:sub(1, #prefix) == prefix
-end
-
-function Utils:EndsWith(str, suffix)
-    if not str or not suffix then return false end
-    return str:sub(-#suffix) == suffix
-end
-
 function Utils:Capitalize(str)
     if not str or str == '' then return '' end
     return str:sub(1,1):upper() .. str:sub(2):lower()
-end
-
-function Utils:CapitalizeWords(str)
-    if not str then return '' end
-    return str:gsub('(%w+)', function(word)
-        return self:Capitalize(word)
-    end)
 end
 
 -- Color utilities
@@ -151,38 +121,6 @@ function Utils:IsPlayerInMyGuild(playerName)
     end
     
     return false
-end
-
-function Utils:GetPlayerInfo(playerName)
-    if not playerName then return nil end
-    
-    -- Try to get info from guild roster first
-    if IsInGuild() then
-        local numMembers = GetNumGuildMembers()
-        for i = 1, numMembers do
-            local name, rank, rankIndex, level, class, zone, note, officernote, online = GetGuildRosterInfo(i)
-            if name and name:lower() == playerName:lower() then
-                return {
-                    name = name,
-                    rank = rank,
-                    rankIndex = rankIndex,
-                    level = level,
-                    class = class,
-                    zone = zone,
-                    note = note,
-                    officernote = officernote,
-                    online = online,
-                    inGuild = true,
-                }
-            end
-        end
-    end
-    
-    -- If not in guild, try to get basic info
-    return {
-        name = playerName,
-        inGuild = false,
-    }
 end
 
 -- Compression utilities (for backward compatibility)
@@ -261,12 +199,6 @@ end
 
 function Utils:FormatDate(timestamp)
     return date("%m/%d/%Y %H:%M", timestamp)
-end
-
--- Validation utilities
-function Utils:ValidateEmail(email)
-    if not email then return false end
-    return email:match("^[%w%._%-%+]+@[%w%._%-%+]+%.%w+$") ~= nil
 end
 
 function Utils:ValidatePlayerName(name)

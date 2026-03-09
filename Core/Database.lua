@@ -29,6 +29,7 @@ local DEFAULT_PROFILE_SCHEMA = {
                 inviteFormat = 2,
                 isCompact = false,
             },
+            debugMode = false,
             antiSpam = {
                 enabled = true,
                 days = 7,
@@ -280,7 +281,9 @@ function Database:SaveData()
         end
     end
     
-    print("[FGR-DEBUG] Database save triggered - timestamp: " .. tostring(time()))
+    if ns.Logger then
+        ns.Logger:Debug("Database save triggered - timestamp: %s", tostring(time()))
+    end
     return true
 end
 

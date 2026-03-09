@@ -143,6 +143,18 @@ function General:GetUISettings()
                 set = function(_, val) ns.g.ui.compactSize = tonumber(val) end,
                 get = function() return ns.g.ui.compactSize or 1 end,
             },
+            genDebugMode = {
+                order = 9,
+                name = (L['DEBUG_MODE'] or 'Debug Mode'),
+                desc = (L['DEBUG_MODE_DESC'] or 'Enable verbose debug logging to chat. Useful for troubleshooting.'),
+                type = 'toggle',
+                width = 1,
+                set = function(_, val)
+                    ns.pSettings.debugMode = val
+                    FGR.debug = val or (FGR.isTesting == true)
+                end,
+                get = function() return ns.pSettings.debugMode or false end,
+            },
         }
     }
 end
@@ -210,14 +222,15 @@ function General:GetKeybindingSettings()
                 type = 'keybinding',
                 width = 1,
                 set = function(_, val)
-                    if not val or val == '' then 
+                    if not val or val == '' then
                         ns.g.keybindings.invite = nil
                     elseif val == ns.g.keybindings.invite then
-                        ns.Logger:Info(L['KEY_BOUND_TO_INVITE'])
+                        if ns.Logger then ns.Logger:Info(L['KEY_BOUND_TO_INVITE']) end
                         return
-                    else 
-                        ns.g.keybindings.invite = val 
+                    else
+                        ns.g.keybindings.invite = val
                     end
+                    if ns.Keybindings then ns.Keybindings:RefreshKeybindings() end
                 end,
                 get = function() return ns.g.keybindings.invite end,
             },
@@ -234,14 +247,15 @@ function General:GetKeybindingSettings()
                 type = 'keybinding',
                 width = 1,
                 set = function(_, val)
-                    if not val or val == '' then 
+                    if not val or val == '' then
                         ns.g.keybindings.scan = nil
                     elseif val == ns.g.keybindings.scan then
-                        ns.Logger:Info(L['KEY_BOUND_TO_SCAN'])
+                        if ns.Logger then ns.Logger:Info(L['KEY_BOUND_TO_SCAN']) end
                         return
-                    else 
-                        ns.g.keybindings.scan = val 
+                    else
+                        ns.g.keybindings.scan = val
                     end
+                    if ns.Keybindings then ns.Keybindings:RefreshKeybindings() end
                 end,
                 get = function() return ns.g.keybindings.scan end,
             },

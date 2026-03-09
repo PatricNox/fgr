@@ -73,7 +73,7 @@ FGR.author = C_AddOns.GetAddOnMetadata(addonName, 'Author')
 FGR.version = C_AddOns.GetAddOnMetadata(addonName, 'Version')
 FGR.db = addonName == 'FGR' and 'FGRDB' or 'devFGRDB'
 FGR.ICON_PATH = 'Interface\\AddOns\\'..addonName..'\\Images\\'
-FGR.debug = true
+FGR.debug = false
 
 FGR.isPreRelease = false
 FGR.preReleaseType = 'Beta'
@@ -121,8 +121,6 @@ function Core:InitializeBasicSystems()
         ns.fPlayerName = GetUnitName('player', false)
     end
 end
-    
-    -- Rest of the function stays the same...
 
 function Core:InitializeBasicSettings()
     -- Initialize basic settings even without full database
@@ -219,19 +217,10 @@ function Core:LoadDataTables()
     end
 
     if ns.DataSources then
-        if ns.retail then
-            ns.races = ns.DataSources:GetRaces('retail')
-            ns.classes = ns.DataSources:GetClasses('retail')
-            ns.invalidZones = ns.DataSources:GetInvalidZones('retail')
-        elseif ns.classic then
-            ns.races = ns.DataSources:GetRaces('classic')
-            ns.classes = ns.DataSources:GetClasses('classic')
-            ns.invalidZones = ns.DataSources:GetInvalidZones('classic')
-        elseif ns.cata then
-            ns.races = ns.DataSources:GetRaces('cata')
-            ns.classes = ns.DataSources:GetClasses('cata')
-            ns.invalidZones = ns.DataSources:GetInvalidZones('cata')
-        end
+        local version = ns.retail and 'retail' or ns.classic and 'classic' or 'cata'
+        ns.races = ns.DataSources:GetRaces(version)
+        ns.classes = ns.DataSources:GetClasses(version)
+        ns.invalidZones = ns.DataSources:GetInvalidZones(version)
     end
 
     if ns.Logger then

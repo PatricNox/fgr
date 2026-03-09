@@ -29,13 +29,6 @@ ns.Colors = {
     WARNING = 'FFFFFF00',
 }
 
--- Legacy color constants for backward compatibility
-ns.COLOR_GM = ns.Colors.GM
-ns.COLOR_DEBUG = ns.Colors.DEBUG
-ns.COLOR_ERROR = ns.Colors.ERROR
-ns.COLOR_SYSTEM = ns.Colors.SYSTEM
-ns.COLOR_DEFAULT = ns.Colors.DEFAULT
-
 -- Icons
 ns.Icons = {
     MAIN = ns.ICON_PATH..'FGR_Icon',
@@ -58,26 +51,6 @@ ns.Icons = {
     SETTINGS = ns.ICON_PATH..'FGR_Settings',
 }
 
--- Legacy icon constants
-ns.FGR_ICON = ns.Icons.MAIN
-ns.BUTTON_LOCKED = ns.Icons.LOCKED
-ns.BUTTON_UNLOCKED = ns.Icons.UNLOCKED
-ns.BUTTON_ABOUT = ns.Icons.ABOUT
-ns.BUTTON_BACK = ns.Icons.BACK
-ns.BUTTON_BLACKLIST = ns.Icons.BLACKLIST
-ns.BUTTON_FILTER = ns.Icons.FILTER
-ns.BUTTON_FILTER_COLOR = ns.Icons.FILTER_COLOR
-ns.BUTTON_COMPACT = ns.Icons.COMPACT
-ns.BUTTON_EXPAND = ns.Icons.EXPAND
-ns.BUTTON_EXIT = ns.Icons.EXIT
-ns.BUTTON_EXIT_EMPTY = ns.Icons.EXIT_EMPTY
-ns.BUTTON_NEW = ns.Icons.NEW
-ns.BUTTON_RESET = ns.Icons.RESET
-ns.BUTTON_STATS = ns.Icons.STATS
-ns.BUTTON_SYNC_ON = ns.Icons.SYNC_ON
-ns.BUTTON_SYNC = ns.Icons.SYNC
-ns.BUTTON_SETTINGS = ns.Icons.SETTINGS
-
 -- Player Information
 ns.PLAYER_PROFILE = UnitName('player')..'-'..GetRealmName()
 
@@ -87,9 +60,6 @@ ns.Time = {
     SECONDS_IN_HOUR = 3600,
     SECONDS_IN_MINUTE = 60,
 }
-
--- Legacy time constants
-ns.SECONDS_IN_A_DAY = ns.Time.SECONDS_IN_DAY
 
 -- UI Constants
 ns.UI = {
@@ -110,15 +80,6 @@ ns.UI = {
     },
 }
 
--- Legacy UI constants
-ns.BLUE_HIGHLIGHT = ns.UI.HIGHLIGHTS.BLUE
-ns.BLUE_LONG_HIGHLIGHT = ns.UI.HIGHLIGHTS.BLUE_LONG
-ns.ARIAL_FONT = ns.UI.FONTS.ARIAL
-ns.SKURRI_FONT = ns.UI.FONTS.SKURRI
-ns.DEFAULT_FONT = ns.UI.FONTS.DEFAULT
-ns.MORPHEUS_FONT = ns.UI.FONTS.MORPHEUS
-ns.DEFAULT_FONT_SIZE = ns.UI.FONT_SIZE.DEFAULT
-
 -- Enumerations
 ns.Enums = {
     InviteFormat = {
@@ -135,20 +96,12 @@ ns.Enums = {
     },
 }
 
--- Legacy enumeration
-ns.InviteFormat = ns.Enums.InviteFormat
-
 -- External Links
 ns.Links = {
     DISCORD = 'https://discord.gg/kEUCbfySZu',
     CURSE_FORGE = 'https://www.curseforge.com/wow/addons/fast-guild-recruiter',
     BUY_ME_COFFEE = 'https://coff.ee/patricnoxdev',
 }
-
--- Legacy link constants
-ns.DISCORD = ns.Links.DISCORD
-ns.CURSE_FORGE = ns.Links.CURSE_FORGE
-ns.BUY_ME_COFFEE = ns.Links.BUY_ME_COFFEE
 
 -- Settings Categories and Modules - INITIALIZE MODULES TABLE
 ns.Settings = {

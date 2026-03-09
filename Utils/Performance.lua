@@ -127,41 +127,5 @@ function Performance:CreateCache(maxSize, ttl)
     return cache
 end
 
--- Global performance monitoring
-Performance.metrics = {
-    functionCalls = {},
-    executionTimes = {},
-}
-
-function Performance:StartTimer(name)
-    self.metrics.executionTimes[name] = GetTime()
-end
-
-function Performance:EndTimer(name)
-    local startTime = self.metrics.executionTimes[name]
-    if startTime then
-        local duration = GetTime() - startTime
-        if ns.Logger and ns.Logger.Debug then
-            ns.Logger:Debug("Function %s took %.3f seconds", name, duration)
-        end
-        self.metrics.executionTimes[name] = nil
-        return duration
-    end
-    return 0
-end
-
-function Performance:ProfileFunction(func, name)
-    return function(...)
-        self:StartTimer(name)
-        local results = {func(...)}
-        self:EndTimer(name)
-        
-        -- Track call count
-        self.metrics.functionCalls[name] = (self.metrics.functionCalls[name] or 0) + 1
-        
-        return unpack(results)
-    end
-end
-
 -- Initialize immediately when loaded
 Performance:Initialize()

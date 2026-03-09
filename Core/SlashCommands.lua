@@ -32,8 +32,6 @@ function SlashCommands:RegisterCommands()
             self:ToggleDebug()
         elseif msg == 'status' then
             self:ShowStatus()
-        elseif msg == 'dbdebug' or msg == 'database' then
-                self:HandleDatabaseDebug()
         else
             self:ShowHelp()
         end
@@ -92,40 +90,6 @@ function SlashCommands:OpenSettings()
     end
 end
 
-function SlashCommands:TestOpenSettings()
-    print("|cFF3EB9D8[FGR] Direct settings test...")
-    
-    if ns.SettingsManager then
-        print("SettingsManager exists: " .. tostring(ns.SettingsManager.isInitialized))
-        
-        -- Check the new property names
-        if ns.SettingsManager.category then
-            local cat = ns.SettingsManager.category
-            print("Category found: " .. tostring(cat))
-            print("Category ID: " .. tostring(cat.ID))
-            print("Category name: " .. tostring(cat.name))
-            
-            -- Try direct approach
-            if Settings and Settings.OpenToCategory then
-                print("Trying direct Settings.OpenToCategory with our category...")
-                local success, err = pcall(Settings.OpenToCategory, cat)
-                print("Result: " .. tostring(success) .. ", Error: " .. tostring(err))
-            end
-        elseif ns.SettingsManager.settingsCategory then
-            print("Found old settingsCategory property")
-            local cat = ns.SettingsManager.settingsCategory
-            print("Category: " .. tostring(cat))
-        else
-            print("No category found in SettingsManager")
-            print("Available properties:")
-            for k, v in pairs(ns.SettingsManager) do
-                print("  " .. k .. ": " .. type(v))
-            end
-        end
-    else
-        print("SettingsManager not available")
-    end
-end
 
 function SlashCommands:HandleBlacklistCommand(msg)
     local name = msg:gsub('blacklist', ''):trim()
@@ -188,73 +152,6 @@ local function InitializeSlashCommands()
         -- If FGR doesn't exist yet, wait and try again
         C_Timer.After(0.1, InitializeSlashCommands)
     end
-end
-
-function SlashCommands:TestSettings()
-    print("|cFF3EB9D8[FGR]|r Testing settings registration...")
-    
-    if ns.SettingsManager then
-        print("SettingsManager exists: " .. tostring(ns.SettingsManager.isInitialized))
-        print("Settings name: " .. tostring(ns.SettingsManager.settingsName))
-        print("Settings category: " .. tostring(ns.SettingsManager.settingsCategory))
-        
-        if Settings then
-            print("Modern Settings API available")
-        end
-        if AceConfig then
-            print("AceConfig available")
-        end
-        if InterfaceOptionsFrame_OpenToCategory then
-            print("Legacy Interface Options available")
-        end
-    else
-        print("SettingsManager not available")
-    end
-end
-
-function SlashCommands:HandleDatabaseDebug()
-    print("|cFF00FFFF[FGR-DB-DEBUG]|r === DATABASE STRUCTURE DEBUG ===")
-    print("FGR.db name: " .. tostring(FGR.db))
-    print("Database initialized: " .. tostring(ns.Database and ns.Database.isInitialized))
-    
-    if ns.Database and ns.Database.db then
-        print("Database object exists: true")
-        print("Global data exists: " .. tostring(ns.Database.db.global ~= nil))
-        
-        if ns.Database.db.global then
-            print("Guilds table exists: " .. tostring(ns.Database.db.global.guilds ~= nil))
-            
-            if ns.Database.db.global.guilds then
-                local guildCount = 0
-                for _ in pairs(ns.Database.db.global.guilds) do guildCount = guildCount + 1 end
-                print("Number of guilds: " .. guildCount)
-                
-                for guildId, guildData in pairs(ns.Database.db.global.guilds) do
-                    print("Guild ID: " .. tostring(guildId))
-                    if guildData.data and guildData.data.messageList then
-                        print("  Messages: " .. #guildData.data.messageList)
-                        for i, msg in ipairs(guildData.data.messageList) do
-                            print("    " .. i .. ": " .. (msg.desc or "No desc"))
-                        end
-                    else
-                        print("  No message list found")
-                    end
-                end
-            end
-        end
-    else
-        print("Database object: false")
-    end
-    
-    print("ns.guild exists: " .. tostring(ns.guild ~= nil))
-    if ns.guild and ns.guild.data and ns.guild.data.messageList then
-        print("ns.guild messageList count: " .. #ns.guild.data.messageList)
-    end
-    
-    -- Check current club ID
-    local clubID = C_Club.GetGuildClubId()
-    print("Current club ID: " .. tostring(clubID))
-    print("FGR.clubID: " .. tostring(FGR.clubID))
 end
 
 InitializeSlashCommands()
