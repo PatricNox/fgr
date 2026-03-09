@@ -1,4 +1,4 @@
-## Interface: 120000
+## Interface: 120001
 ## Title: Fast Guild Recruiter
 ## Notes: Advanced guild recruitment tool with anti-spam, blacklist, and message templates
 ## Author: PatricNox
