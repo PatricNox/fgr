@@ -68,7 +68,7 @@ function ContextMenu:InitializeMenu(frame, level)
     local title = UIDropDownMenu_CreateInfo()
     title.text = playerName
     title.isTitle = true
-    title.fontObject = GameFontHighlightLarge
+    title.fontObject = FGRFontTitle
     title.notCheckable = true
     title.justifyH = "CENTER"
     UIDropDownMenu_AddButton(title, level)

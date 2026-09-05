@@ -4,375 +4,294 @@ local addonName, ns = ...
 ns.SettingsManager = {}
 local SettingsManager = ns.SettingsManager
 
+local T = ns.Theme
+
 SettingsManager.isInitialized = false
 SettingsManager.currentTab = "general"
 
--- Tab definitions
+-- Sidebar nav. Order here is the order on screen.
 local TABS = {
-    {id = "general", name = "General", order = 1},
-    {id = "recruitment", name = "Recruitment", order = 2},
-    {id = "messages", name = "Messages", order = 3},
-    {id = "blacklist", name = "Blacklist", order = 4},
-    {id = "antispam", name = "Anti-Spam", order = 5},
-    {id = "zones", name = "Zones", order = 6},
-    {id = "about", name = "About", order = 7},
+    { id = "general",     name = "General",     hint = "Window, minimap, debug" },
+    { id = "recruitment", name = "Recruitment", hint = "Levels, classes, pacing" },
+    { id = "messages",    name = "Messages",    hint = "Whisper templates" },
+    { id = "blacklist",   name = "Blacklist",   hint = "Never contact again" },
+    { id = "antispam",    name = "Anti-Spam",   hint = "Contact cooldowns" },
+    { id = "zones",       name = "Zones",       hint = "Skipped areas" },
+    { id = "about",       name = "About",       hint = "Version and links" },
 }
+
+local SIDEBAR_WIDTH = 168
+
+-------------------------------------------------------------------------------
+-- Template shim
+--
+-- The tab builders below were written against Blizzard's templates. Rather than
+-- touch several hundred call sites, this file-local CreateFrame maps those
+-- templates onto Theme components; everything else falls through untouched.
+-------------------------------------------------------------------------------
+
+local RealCreateFrame = CreateFrame
+
+local function CreateFrame(kind, name, parent, template, ...)
+    if template == "UIPanelButtonTemplate" then
+        return T:Button(parent, "", "secondary")
+    elseif template == "InterfaceOptionsCheckButtonTemplate" then
+        return T:Checkbox(parent, "")
+    elseif template == "InputBoxTemplate" then
+        return T:EditBox(parent)
+    elseif template == "UIDropDownMenuTemplate" then
+        local widget = RealCreateFrame(kind, name, parent, template, ...)
+        T:StyleDropdown(widget)
+        return widget
+    elseif template == "OptionsSliderTemplate" then
+        local widget = RealCreateFrame(kind, name, parent, template, ...)
+        T:StyleSlider(widget)
+        return widget
+    end
+    return RealCreateFrame(kind, name, parent, template, ...)
+end
 
 function SettingsManager:Initialize()
     if self.isInitialized then return end
-    
-    print("|cFF3EB9D8[FGR]|r Initializing enhanced settings...")
-    
+
     self:CreateTabbedSettingsFrame()
-    
-    -- Register with WindowManager immediately after frame creation
+
     if ns.WindowManager and self.settingsFrame then
         ns.WindowManager:RegisterWindow(
             "settings",
             self.settingsFrame,
-            function() 
+            function()
                 self.settingsFrame:Show()
-                -- Reload the current tab content since it was cleaned up when closed
-                if self.currentTab then
-                    self:ShowTab(self.currentTab)
-                else
-                    self:ShowTab("general")
-                end
+                self:ShowTab(self.currentTab or "general")
             end,
-            function() 
+            function()
                 self:CleanupAndHide()
             end
         )
     end
-    
+
     self.isInitialized = true
-    print("|cFF3EB9D8[FGR]|r Enhanced settings initialized")
 end
 
 function SettingsManager:CreateTabbedSettingsFrame()
-    -- Create main settings frame
-    local frame = CreateFrame("Frame", "FGRSettingsFrame", UIParent, "BasicFrameTemplateWithInset")
-    
-    frame:SetSize(700, 600)
-    frame:SetPoint("LEFT", UIParent, "LEFT", 50, 0)
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-    frame:Hide()
-    
-    -- Title
-    frame.title = frame:CreateFontString(nil, "OVERLAY")
-    frame.title:SetFontObject("GameFontHighlight")
-    frame.title:SetPoint("LEFT", frame.TitleBg, "LEFT", 5, 0)
-    frame.title:SetText("Fast Guild Recruiter Settings")
+    local frame = T:Window({
+        name = "FGRSettingsFrame",
+        title = "Settings",
+        width = 760,
+        height = 600,
+        point = "CENTER",
+        onClose = function() SettingsManager:CleanupAndHide() end,
+    })
 
-    if ns.Theme then
-        ns.Theme:ApplyFrame(frame, "Fast Guild Recruiter Settings")
-    end
-    
-    -- Create tab system
-    self:CreateTabs(frame)
-    
-    -- Create content area - use the main frame instead of InsetBg
-    frame.contentFrame = CreateFrame("Frame", nil, frame)
-    frame.contentFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -80) -- Leave space for tabs and title
-    frame.contentFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 20)
+    local body = frame.body
 
-    if ns.Theme and not frame.contentFrame.fgrBg then
-        local r, g, b, a = ns.Theme:GetColor("panel")
-        local bg = frame.contentFrame:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints(frame.contentFrame)
-        bg:SetColorTexture(r, g, b, a * 0.7)
-        frame.contentFrame.fgrBg = bg
-    end
-    
-    -- Create a simple scroll frame without template
-    frame.scrollFrame = CreateFrame("ScrollFrame", nil, frame.contentFrame)
-    frame.scrollFrame:SetAllPoints(frame.contentFrame)
-    frame.scrollFrame:EnableMouse(true)
-    frame.scrollFrame:EnableMouseWheel(true)
-    
-    -- Create scroll child
-    frame.scrollChild = CreateFrame("Frame", nil, frame.scrollFrame)
-    frame.scrollChild:SetSize(frame.scrollFrame:GetWidth() - 20, 1000)
-    frame.scrollFrame:SetScrollChild(frame.scrollChild)
-    
-    -- Set up mouse wheel scrolling
-    frame.scrollFrame:SetScript("OnMouseWheel", function(self, delta)
-        local current = self:GetVerticalScroll()
-        local maxScroll = self:GetVerticalScrollRange()
-        local newScroll = current - (delta * 20)
-        
-        if newScroll < 0 then
-            newScroll = 0
-        elseif newScroll > maxScroll then
-            newScroll = maxScroll
-        end
-        
-        self:SetVerticalScroll(newScroll)
-    end)
+    -- ===== SIDEBAR =====
+    local sidebar = RealCreateFrame("Frame", nil, body)
+    sidebar:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+    sidebar:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", 0, 0)
+    sidebar:SetWidth(SIDEBAR_WIDTH)
+    T:Fill(sidebar, "sidebar")
 
-    if frame.CloseButton then
-        frame.CloseButton:SetScript("OnClick", function()
-            SettingsManager:CleanupAndHide()
-        end)
-    end
-    
+    local sidebarRule = RealCreateFrame("Frame", nil, sidebar)
+    sidebarRule:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
+    sidebarRule:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", 0, 0)
+    sidebarRule:SetWidth(1)
+    T:Fill(sidebarRule, "border")
+
+    frame.sidebar = sidebar
     self.settingsFrame = frame
-    
-    -- Load initial tab
+    self:CreateTabs(frame)
+
+    -- ===== CONTENT =====
+    frame.contentFrame = RealCreateFrame("Frame", nil, body)
+    frame.contentFrame:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", T.space.xl, -T.space.lg)
+    frame.contentFrame:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -T.space.md, T.space.lg)
+
+    local scrollFrame, scrollChild = T:ScrollArea(frame.contentFrame, { step = 34 })
+    scrollFrame:SetAllPoints(frame.contentFrame)
+    scrollChild:SetSize(frame.contentFrame:GetWidth() - T.space.sm, 1000)
+
+    frame.scrollFrame = scrollFrame
+    frame.scrollChild = scrollChild
+
     self:ShowTab("general")
 end
 
 function SettingsManager:CleanupAndHide()
-    if self.settingsFrame then
-        -- Get the CURRENT scroll child from the scroll frame
-        local currentScrollChild = self.settingsFrame.scrollFrame:GetScrollChild()
-        
-        if currentScrollChild then
-            local children = {}
-            for i = 1, currentScrollChild:GetNumChildren() do
-                children[i] = select(i, currentScrollChild:GetChildren())
-            end
-            
-            for i = 1, #children do
-                if children[i] then
-                    children[i]:Hide()
-                    children[i]:ClearAllPoints()
-                    children[i]:SetParent(nil)
-                end
-            end
-            
-            -- Also hide and clear the scroll child itself
-            currentScrollChild:Hide()
-            currentScrollChild:ClearAllPoints()
+    local frame = self.settingsFrame
+    if not frame then return end
+
+    local scrollChild = frame.scrollFrame:GetScrollChild()
+    if scrollChild then
+        for _, child in ipairs({ scrollChild:GetChildren() }) do
+            child:Hide()
+            child:ClearAllPoints()
+            child:SetParent(nil)
         end
-        
-        -- Also clean up any orphaned scroll children that might still exist
-        if self.settingsFrame.scrollChild and self.settingsFrame.scrollChild ~= currentScrollChild then
-            local oldScrollChild = self.settingsFrame.scrollChild
-            local oldChildren = {}
-            for i = 1, oldScrollChild:GetNumChildren() do
-                oldChildren[i] = select(i, oldScrollChild:GetChildren())
-            end
-            
-            for i = 1, #oldChildren do
-                if oldChildren[i] then
-                    oldChildren[i]:Hide()
-                    oldChildren[i]:ClearAllPoints()
-                    oldChildren[i]:SetParent(nil)
-                end
-            end
-            oldScrollChild:Hide()
-        end
-        
-        -- Reset scroll position
-        self.settingsFrame.scrollFrame:SetVerticalScroll(0)
-        
-        -- Hide the frame
-        self.settingsFrame:Hide()
+        scrollChild:Hide()
+        scrollChild:ClearAllPoints()
     end
+
+    frame.scrollFrame:SetVerticalScroll(0)
+    frame:Hide()
 end
+
+-------------------------------------------------------------------------------
+-- Sidebar nav
+-------------------------------------------------------------------------------
 
 function SettingsManager:CreateTabs(frame)
     frame.tabs = {}
-    local tabWidth = 80
-    local tabHeight = 25
-    local xOffset = 20
-    local theme = ns.Theme
-    
-    for i, tabData in ipairs(TABS) do
-        -- Create a simple button
-        local tab = CreateFrame("Button", nil, frame)
-        tab:SetSize(tabWidth, tabHeight)
-        tab:SetPoint("TOPLEFT", frame, "TOPLEFT", xOffset, -50) -- Position below title
-        
-        -- Create background texture manually
-        local bg = tab:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints(tab)
-        if theme then
-            local r, g, b = theme:GetColor("panel")
-            bg:SetColorTexture(r, g, b, 0.6)
-        else
-            bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-        end
-        tab.bg = bg
-        
-        -- Create text
-        local text = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        text:SetPoint("CENTER", tab, "CENTER", 0, 0)
-        text:SetText(tabData.name)
-        tab.text = text
-        
-        tab.tabId = tabData.id
-        tab.isSelected = false
-        
-        -- Set up tab functionality
-        tab:SetScript("OnClick", function(self)
-            SettingsManager:ShowTab(self.tabId)
-        end)
-        
-        -- Hover effects
-        tab:SetScript("OnEnter", function(self)
-            if not self.isSelected then
-                if theme then
-                    local r, g, b, a = theme:GetColor("accentSoft")
-                    self.bg:SetColorTexture(r, g, b, a)
-                    self.text:SetTextColor(1, 1, 1)
-                else
-                    self.bg:SetColorTexture(0.3, 0.3, 0.3, 0.8)
-                    self.text:SetTextColor(1, 1, 1)
-                end
+
+    local navLabel = T:Eyebrow(frame.sidebar, "Settings")
+    navLabel:SetPoint("TOPLEFT", frame.sidebar, "TOPLEFT", T.space.md, -T.space.md)
+
+    local y = -T.space.md - 20
+
+    for _, tabData in ipairs(TABS) do
+        local item = RealCreateFrame("Button", nil, frame.sidebar)
+        item:SetPoint("TOPLEFT", frame.sidebar, "TOPLEFT", T.space.sm, y)
+        item:SetPoint("TOPRIGHT", frame.sidebar, "TOPRIGHT", -T.space.sm, y)
+        item:SetHeight(30)
+
+        local bg = item:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints(item)
+        bg:SetColorTexture(0, 0, 0, 0)
+        item.bg = bg
+
+        -- Active state is an accent rail + wash, not a raised pill.
+        local rail = item:CreateTexture(nil, "ARTWORK")
+        rail:SetPoint("TOPLEFT", item, "TOPLEFT", 0, 0)
+        rail:SetPoint("BOTTOMLEFT", item, "BOTTOMLEFT", 0, 0)
+        rail:SetWidth(2)
+        local ar, ag, ab = T:GetColor("accent")
+        rail:SetColorTexture(ar, ag, ab, 1)
+        rail:Hide()
+        item.rail = rail
+
+        local text = T:Label(item, tabData.name, "textMuted", T.type.body)
+        text:SetPoint("LEFT", item, "LEFT", T.space.md, 0)
+        item.text = text
+
+        item.tabId = tabData.id
+        item.hint = tabData.hint
+        item.isSelected = false
+
+        item:SetScript("OnClick", function(s) SettingsManager:ShowTab(s.tabId) end)
+        item:SetScript("OnEnter", function(s)
+            if not s.isSelected then
+                local hr, hg, hb = T:GetColor("panelHover")
+                s.bg:SetColorTexture(hr, hg, hb, 1)
+                local tr, tg, tb = T:GetColor("textMain")
+                s.text:SetTextColor(tr, tg, tb)
+            end
+            if s.hint then
+                GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
+                GameTooltip:SetText(s.hint, 1, 1, 1, 1, true)
+                GameTooltip:Show()
             end
         end)
-        
-        tab:SetScript("OnLeave", function(self)
-            if not self.isSelected then
-                if theme then
-                    theme:StyleTab(self, false)
-                else
-                    self.bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-                    self.text:SetTextColor(0.7, 0.7, 0.7)
-                end
+        item:SetScript("OnLeave", function(s)
+            GameTooltip:Hide()
+            if not s.isSelected then
+                s.bg:SetColorTexture(0, 0, 0, 0)
+                local tr, tg, tb = T:GetColor("textMuted")
+                s.text:SetTextColor(tr, tg, tb)
             end
         end)
-        
-        frame.tabs[tabData.id] = tab
-        xOffset = xOffset + tabWidth + 5
+
+        frame.tabs[tabData.id] = item
+        y = y - 32
     end
-    
-    -- Set first tab as selected
-    if frame.tabs["general"] then
-        local firstTab = frame.tabs["general"]
-        firstTab.isSelected = true
-        if theme then
-            theme:StyleTab(firstTab, true)
-        else
-            firstTab.bg:SetColorTexture(0.24, 0.73, 0.85, 0.8) -- Blue background for selected
-            firstTab.text:SetTextColor(1, 1, 1) -- White text for selected
-        end
+
+    local version = FGR and FGR.versionOut or ""
+    if version ~= "" then
+        local verText = T:Label(frame.sidebar, version, "textSoft", T.type.micro)
+        verText:SetPoint("BOTTOMLEFT", frame.sidebar, "BOTTOMLEFT", T.space.md, T.space.md)
     end
-    
-    -- Set initial colors for unselected tabs
-    for id, tab in pairs(frame.tabs) do
-        if not tab.isSelected then
-            if theme then
-                theme:StyleTab(tab, false)
-            else
-                tab.text:SetTextColor(0.7, 0.7, 0.7)
-            end
-        end
+end
+
+function SettingsManager:SetTabSelected(item, selected)
+    item.isSelected = selected
+    item.rail:SetShown(selected)
+    if selected then
+        local ar, ag, ab = T:GetColor("accent")
+        item.bg:SetColorTexture(ar, ag, ab, 0.14)
+        local tr, tg, tb = T:GetColor("textMain")
+        item.text:SetTextColor(tr, tg, tb)
+    else
+        item.bg:SetColorTexture(0, 0, 0, 0)
+        local tr, tg, tb = T:GetColor("textMuted")
+        item.text:SetTextColor(tr, tg, tb)
     end
 end
 
 function SettingsManager:ShowTab(tabId)
-    if not self.settingsFrame then return end
-    local theme = ns.Theme
-    
-    -- Update tab selection
-    for id, tab in pairs(self.settingsFrame.tabs) do
-        if id == tabId then
-            tab.isSelected = true
-            if theme then
-                theme:StyleTab(tab, true)
-            else
-                tab.bg:SetColorTexture(0.24, 0.73, 0.85, 0.8)
-                tab.text:SetTextColor(1, 1, 1)
-            end
-        else
-            tab.isSelected = false
-            if theme then
-                theme:StyleTab(tab, false)
-            else
-                tab.bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-                tab.text:SetTextColor(0.7, 0.7, 0.7)
-            end
-        end
+    local frame = self.settingsFrame
+    if not frame then return end
+
+    for id, item in pairs(frame.tabs) do
+        self:SetTabSelected(item, id == tabId)
     end
-    
     self.currentTab = tabId
-    
-    -- Clean up existing content more thoroughly
-    local currentScrollChild = self.settingsFrame.scrollFrame:GetScrollChild()
-    if currentScrollChild then
-        -- Clean up current scroll child
-        local children = {}
-        for i = 1, currentScrollChild:GetNumChildren() do
-            children[i] = select(i, currentScrollChild:GetChildren())
+
+    -- Rebuild the pane from scratch: tab builders create frames rather than
+    -- reusing them, so recycling would leak widgets between tabs.
+    local scrollChild = frame.scrollFrame:GetScrollChild()
+    if scrollChild then
+        for _, child in ipairs({ scrollChild:GetChildren() }) do
+            child:Hide()
+            child:ClearAllPoints()
+            child:SetParent(nil)
         end
-        
-        for i = 1, #children do
-            if children[i] then
-                children[i]:Hide()
-                children[i]:ClearAllPoints()
-                children[i]:SetParent(nil)
-            end
-        end
-        
-        -- Hide the old scroll child
-        currentScrollChild:Hide()
+        scrollChild:Hide()
     end
-    
-    -- Create a completely new scroll child
-    local newScrollChild = CreateFrame("Frame", nil, self.settingsFrame.scrollFrame)
-    newScrollChild:SetSize(self.settingsFrame.scrollFrame:GetWidth() - 20, 1000)
-    self.settingsFrame.scrollFrame:SetScrollChild(newScrollChild)
-    
-    -- Update our reference
-    self.settingsFrame.scrollChild = newScrollChild
-    
-    -- Reset scroll position
-    self.settingsFrame.scrollFrame:SetVerticalScroll(0)
-    
-    -- Load tab content
-    if tabId == "general" then
-        self:CreateGeneralTab(newScrollChild)
-    elseif tabId == "recruitment" then
-        self:CreateRecruitmentTab(newScrollChild)
-    elseif tabId == "messages" then
-        self:CreateMessagesTab(newScrollChild)
-    elseif tabId == "blacklist" then
-        self:CreateBlacklistTab(newScrollChild)
-    elseif tabId == "antispam" then
-        self:CreateAntiSpamTab(newScrollChild)
-    elseif tabId == "zones" then
-        self:CreateZonesTab(newScrollChild)
-    elseif tabId == "about" then
-        self:CreateAboutTab(newScrollChild)
-    end
+
+    local newScrollChild = RealCreateFrame("Frame", nil, frame.scrollFrame)
+    newScrollChild:SetSize(frame.scrollFrame:GetWidth() - T.space.sm, 1000)
+    frame.scrollFrame:SetScrollChild(newScrollChild)
+    frame.scrollChild = newScrollChild
+    frame.scrollFrame:SetVerticalScroll(0)
+
+    local builders = {
+        general     = self.CreateGeneralTab,
+        recruitment = self.CreateRecruitmentTab,
+        messages    = self.CreateMessagesTab,
+        blacklist   = self.CreateBlacklistTab,
+        antispam    = self.CreateAntiSpamTab,
+        zones       = self.CreateZonesTab,
+        about       = self.CreateAboutTab,
+    }
+    local builder = builders[tabId]
+    if builder then builder(self, newScrollChild) end
+
+    if frame.scrollFrame.fgrUpdateThumb then frame.scrollFrame.fgrUpdateThumb() end
 end
 
 function SettingsManager:CreateGeneralTab(parent)
     local yOffset = -10
-    local theme = ns.Theme
     
     -- Header
-    local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local header = T:Label(parent, "General Settings", "textMain", T.type.display)
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
-    header:SetText("General Settings")
-    if theme then
-        local r, g, b = theme:GetColor("accent")
-        header:SetTextColor(r, g, b)
-    else
-        header:SetTextColor(0.24, 0.73, 0.85)
-    end
+    local headerRule = T:Divider(parent, "border")
+    headerRule:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset - 26)
+    headerRule:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -20, yOffset - 26)
     yOffset = yOffset - 30
     
     -- Notes
-    local guildWideNote = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    local guildWideNote = parent:CreateFontString(nil, "ARTWORK", "FGRFontCaption")
     guildWideNote:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     guildWideNote:SetText("• |cFFFFFF00Guild-wide settings (affects all guild members)|r")
     yOffset = yOffset - 15
     
-    local accountWideNote = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    local accountWideNote = parent:CreateFontString(nil, "ARTWORK", "FGRFontCaption")
     accountWideNote:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     accountWideNote:SetText("• |cFF00FF00Account-wide settings (affects this character only)|r")
     yOffset = yOffset - 40
     
     -- Show What's New
-    local whatsNewLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local whatsNewLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     whatsNewLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     whatsNewLabel:SetText("• Show What's New:")
     
@@ -388,14 +307,14 @@ function SettingsManager:CreateGeneralTab(parent)
     yOffset = yOffset - 30
     
     -- Invite & Scan Settings Header
-    local inviteHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local inviteHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     inviteHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     inviteHeader:SetText("Invite & Scan Settings:")
     inviteHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 30
     
     -- Auto Sync
-    local autoSyncLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local autoSyncLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     autoSyncLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     autoSyncLabel:SetText("• Enable Auto Sync:")
     
@@ -411,14 +330,14 @@ function SettingsManager:CreateGeneralTab(parent)
     yOffset = yOffset - 30
     
     -- Performance Settings Header
-    local perfHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local perfHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     perfHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     perfHeader:SetText("Performance Settings:")
     perfHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 30
     
     -- Message Send Delay
-    local delayLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local delayLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     delayLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     delayLabel:SetText("• Message Send Delay:")
     
@@ -439,21 +358,16 @@ function SettingsManager:CreateGeneralTab(parent)
     yOffset = yOffset - 50
     
     -- Scan Wait Time (Fixed at 15 seconds)
-    local scanLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local scanLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     scanLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     scanLabel:SetText("• Scan Wait Time:")
     
-    local scanDisplay = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    local scanDisplay = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     scanDisplay:SetPoint("LEFT", scanLabel, "RIGHT", 20, 0)
     scanDisplay:SetText("15 seconds (Fixed)")
-    if theme then
-        local r, g, b = theme:GetColor("accent")
-        scanDisplay:SetTextColor(r, g, b)
-    else
-        scanDisplay:SetTextColor(0.24, 0.73, 0.85)
-    end
+    scanDisplay:SetTextColor(T:GetColor("accentStrong"))
     
-    local scanWarning = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    local scanWarning = parent:CreateFontString(nil, "ARTWORK", "FGRFontCaption")
     scanWarning:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset - 15)
     scanWarning:SetText("(Fixed at 15 seconds to prevent Blizzard throttling)")
     scanWarning:SetTextColor(1, 0.5, 0)
@@ -465,7 +379,7 @@ function SettingsManager:CreateGeneralTab(parent)
     yOffset = yOffset - 80
     
     -- Quick Actions Header
-    local actionsHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local actionsHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     actionsHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     actionsHeader:SetText("Quick Actions:")
     actionsHeader:SetTextColor(1, 1, 0)
@@ -489,27 +403,22 @@ end
 
 function SettingsManager:CreateRecruitmentTab(parent)
     local yOffset = -10
-    local theme = ns.Theme
     
-    local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local header = T:Label(parent, "Recruitment Settings", "textMain", T.type.display)
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
-    header:SetText("Recruitment Settings")
-    if theme then
-        local r, g, b = theme:GetColor("accent")
-        header:SetTextColor(r, g, b)
-    else
-        header:SetTextColor(0.24, 0.73, 0.85)
-    end
+    local headerRule = T:Divider(parent, "border")
+    headerRule:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset - 26)
+    headerRule:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -20, yOffset - 26)
     yOffset = yOffset - 40
     
     -- Level Range Section
-    local levelHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local levelHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     levelHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     levelHeader:SetText("Level Range for Scanning:")
     levelHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 25
 
-    local minLevelLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local minLevelLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     minLevelLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     minLevelLabel:SetText("Minimum Level:")
 
@@ -543,7 +452,7 @@ function SettingsManager:CreateRecruitmentTab(parent)
         end
     end)
 
-    local maxLevelLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local maxLevelLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     maxLevelLabel:SetPoint("LEFT", minLevelInput, "RIGHT", 20, 0)
     maxLevelLabel:SetText("Maximum Level:")
 
@@ -579,14 +488,14 @@ function SettingsManager:CreateRecruitmentTab(parent)
     yOffset = yOffset - 60
 
     -- Filter Options Section
-    local filterHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local filterHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     filterHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     filterHeader:SetText("Filter Options:")
     filterHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 25
 
     -- Class Filter Section
-    local classFilterHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local classFilterHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     classFilterHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     classFilterHeader:SetText("Class Filter:")
     classFilterHeader:SetTextColor(1, 1, 0)
@@ -606,7 +515,7 @@ function SettingsManager:CreateRecruitmentTab(parent)
     end
 
     -- Enable Class Filter checkbox
-    local enableClassFilterLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local enableClassFilterLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     enableClassFilterLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     enableClassFilterLabel:SetText("• Enable Class Filter:")
 
@@ -617,7 +526,7 @@ function SettingsManager:CreateRecruitmentTab(parent)
     yOffset = yOffset - 40
 
     -- Class selection checkboxes
-    local classLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local classLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     classLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     classLabel:SetText("Select Classes:")
     yOffset = yOffset - 20
@@ -752,7 +661,7 @@ function SettingsManager:CreateRecruitmentTab(parent)
     yOffset = yOffset - 60
 
     -- Anti-Spam Enable
-    local antiSpamLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local antiSpamLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     antiSpamLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     antiSpamLabel:SetText("• Enable Anti-Spam:")
     
@@ -772,7 +681,7 @@ function SettingsManager:CreateRecruitmentTab(parent)
     yOffset = yOffset - 30
     
     -- Anti-Spam Days
-    local antiSpamDaysLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local antiSpamDaysLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     antiSpamDaysLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     antiSpamDaysLabel:SetText("• Anti-Spam Duration:")
     
@@ -811,13 +720,13 @@ function SettingsManager:CreateRecruitmentTab(parent)
     yOffset = yOffset - 60
     
     -- Guild Welcome Message Section
-    local guildWelcomeHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local guildWelcomeHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     guildWelcomeHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     guildWelcomeHeader:SetText("Guild Welcome Message:")
     guildWelcomeHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 30
     
-    local guildGreetingLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local guildGreetingLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     guildGreetingLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     guildGreetingLabel:SetText("• Send Guild Greeting:")
     
@@ -838,7 +747,7 @@ function SettingsManager:CreateRecruitmentTab(parent)
     yOffset = yOffset - 30
     
     -- Guild Message Input
-    local guildMsgLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local guildMsgLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     guildMsgLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     guildMsgLabel:SetText("Guild Message:")
     
@@ -860,13 +769,13 @@ function SettingsManager:CreateRecruitmentTab(parent)
     yOffset = yOffset - 80
     
     -- Whisper Welcome Message Section
-    local whisperWelcomeHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local whisperWelcomeHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     whisperWelcomeHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     whisperWelcomeHeader:SetText("Whisper Welcome Message:")
     whisperWelcomeHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 30
     
-    local whisperGreetingLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local whisperGreetingLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     whisperGreetingLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     whisperGreetingLabel:SetText("• Send Whisper Greeting:")
     
@@ -887,7 +796,7 @@ function SettingsManager:CreateRecruitmentTab(parent)
     yOffset = yOffset - 30
     
     -- Whisper Message Input
-    local whisperMsgLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local whisperMsgLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     whisperMsgLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     whisperMsgLabel:SetText("Whisper Message:")
     
@@ -899,12 +808,12 @@ function SettingsManager:CreateRecruitmentTab(parent)
     -- Create background texture
     local bg = whisperMsgFrame:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints(whisperMsgFrame)
-    bg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
+    bg:SetColorTexture(T:GetColor("panelElevated"))
     
     -- Create border
     local border = whisperMsgFrame:CreateTexture(nil, "BORDER")
     border:SetAllPoints(whisperMsgFrame)
-    border:SetColorTexture(0.5, 0.5, 0.5, 1)
+    border:SetColorTexture(T:GetColor("border"))
     
     -- Make border slightly smaller to show as outline
     bg:SetPoint("TOPLEFT", whisperMsgFrame, "TOPLEFT", 1, -1)
@@ -930,13 +839,13 @@ function SettingsManager:CreateRecruitmentTab(parent)
     yOffset = yOffset - 100
     
     -- Instructions
-    local instructionsHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local instructionsHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     instructionsHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     instructionsHeader:SetText("Message Instructions:")
     instructionsHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 25
     
-    local instructions = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    local instructions = parent:CreateFontString(nil, "ARTWORK", "FGRFontCaption")
     instructions:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     instructions:SetText("Use these keywords in your messages:\n" ..
                         "• |cFFFFFF00GUILDNAME|r - Replaced with guild name\n" ..
@@ -967,17 +876,12 @@ end
 
 function SettingsManager:CreateMessagesTab(parent)
     local yOffset = -10
-    local theme = ns.Theme
     
-    local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local header = T:Label(parent, "Message Templates", "textMain", T.type.display)
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
-    header:SetText("Message Templates")
-    if theme then
-        local r, g, b = theme:GetColor("accent")
-        header:SetTextColor(r, g, b)
-    else
-        header:SetTextColor(0.24, 0.73, 0.85)
-    end
+    local headerRule = T:Divider(parent, "border")
+    headerRule:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset - 26)
+    headerRule:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -20, yOffset - 26)
     yOffset = yOffset - 40
     
     -- Get the message list from the database
@@ -1007,7 +911,7 @@ function SettingsManager:CreateMessagesTab(parent)
     end
     
     -- Current Message Dropdown
-    local messageLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local messageLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     messageLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     messageLabel:SetText("Select Message Template:")
     
@@ -1071,7 +975,7 @@ function SettingsManager:CreateMessagesTab(parent)
     yOffset = yOffset - 60
     
     -- Message Description
-    local descLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local descLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     descLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     descLabel:SetText("Message Description:")
     
@@ -1087,7 +991,7 @@ function SettingsManager:CreateMessagesTab(parent)
     yOffset = yOffset - 60
     
     -- GM Sync Checkbox
-    local gmSyncLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local gmSyncLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     gmSyncLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     gmSyncLabel:SetText("Guild Master Sync:")
     
@@ -1100,7 +1004,7 @@ function SettingsManager:CreateMessagesTab(parent)
     yOffset = yOffset - 40
     
     -- Message Content
-    local msgLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local msgLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     msgLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     msgLabel:SetText("Message Content:")
     yOffset = yOffset - 25
@@ -1112,11 +1016,11 @@ function SettingsManager:CreateMessagesTab(parent)
     
     local msgBg = msgFrame:CreateTexture(nil, "BACKGROUND")
     msgBg:SetAllPoints(msgFrame)
-    msgBg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
+    msgBg:SetColorTexture(T:GetColor("panelElevated"))
     
     local msgBorder = msgFrame:CreateTexture(nil, "BORDER")
     msgBorder:SetAllPoints(msgFrame)
-    msgBorder:SetColorTexture(0.5, 0.5, 0.5, 1)
+    msgBorder:SetColorTexture(T:GetColor("border"))
     msgBg:SetPoint("TOPLEFT", msgFrame, "TOPLEFT", 1, -1)
     msgBg:SetPoint("BOTTOMRIGHT", msgFrame, "BOTTOMRIGHT", -1, 1)
     
@@ -1131,11 +1035,11 @@ function SettingsManager:CreateMessagesTab(parent)
     yOffset = yOffset - 140
     
     -- Message Preview
-    local previewLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local previewLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     previewLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     previewLabel:SetText("Preview:")
     
-    previewText = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    previewText = parent:CreateFontString(nil, "ARTWORK", "FGRFontCaption")
     previewText:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset - 20)
     previewText:SetWidth(550)
     previewText:SetJustifyH("LEFT")
@@ -1143,7 +1047,7 @@ function SettingsManager:CreateMessagesTab(parent)
     yOffset = yOffset - 60
     
     -- Character Count
-    charCount = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    charCount = parent:CreateFontString(nil, "ARTWORK", "FGRFontCaption")
     charCount:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     charCount:SetTextColor(0, 1, 0)
     yOffset = yOffset - 40
@@ -1312,13 +1216,13 @@ end)
     yOffset = yOffset - 60
     
     -- Enhanced Message Instructions Section
-    local instructionsHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local instructionsHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     instructionsHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     instructionsHeader:SetText("Message Instructions:")
     instructionsHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 25
     
-    local instructions = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    local instructions = parent:CreateFontString(nil, "ARTWORK", "FGRFontCaption")
     instructions:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     instructions:SetText("Use these keywords in your messages:\n" ..
                         "• |cFFFFFF00GUILDNAME|r - Replaced with guild name\n" ..
@@ -1333,17 +1237,17 @@ end)
     local separator = parent:CreateTexture(nil, "ARTWORK")
     separator:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     separator:SetSize(550, 1)
-    separator:SetColorTexture(0.5, 0.5, 0.5, 0.8)
+    separator:SetColorTexture(T:GetColor("border"))
     yOffset = yOffset - 20
     
     -- Example section
-    local exampleHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local exampleHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     exampleHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     exampleHeader:SetText("Example:")
     exampleHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 25
     
-    local exampleText = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    local exampleText = parent:CreateFontString(nil, "ARTWORK", "FGRFontCaption")
     exampleText:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     exampleText:SetText("\"Hello PLAYERNAME! Would you like to join GUILDNAME? Check us out: GUILDLINK\"\n\n" ..
                        "This would become:\n" ..
@@ -1360,17 +1264,12 @@ end
 
 function SettingsManager:CreateBlacklistTab(parent)
     local yOffset = -10
-    local theme = ns.Theme
     
-    local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local header = T:Label(parent, "Blacklist Management", "textMain", T.type.display)
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
-    header:SetText("Blacklist Management")
-    if theme then
-        local r, g, b = theme:GetColor("accent")
-        header:SetTextColor(r, g, b)
-    else
-        header:SetTextColor(0.24, 0.73, 0.85)
-    end
+    local headerRule = T:Divider(parent, "border")
+    headerRule:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset - 26)
+    headerRule:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -20, yOffset - 26)
     yOffset = yOffset - 30
     
     -- Stats
@@ -1379,19 +1278,19 @@ function SettingsManager:CreateBlacklistTab(parent)
         for _ in pairs(ns.tblBlackList) do count = count + 1 end
     end
     
-    local stats = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    local stats = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     stats:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     stats:SetText("Currently blacklisted players: " .. count)
     yOffset = yOffset - 40
     
     -- Add Player Section
-    local addLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local addLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     addLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     addLabel:SetText("Add Player to Blacklist:")
     addLabel:SetTextColor(1, 1, 0)
     yOffset = yOffset - 25
     
-    local playerNameLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local playerNameLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     playerNameLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     playerNameLabel:SetText("Player Name:")
     
@@ -1400,7 +1299,7 @@ function SettingsManager:CreateBlacklistTab(parent)
     playerNameInput:SetSize(150, 20)
     yOffset = yOffset - 30
     
-    local reasonLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local reasonLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     reasonLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     reasonLabel:SetText("Reason:")
     
@@ -1443,7 +1342,7 @@ function SettingsManager:CreateBlacklistTab(parent)
     yOffset = yOffset - 60
     
     -- Blacklist Display
-    local listLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local listLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     listLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     listLabel:SetText("Blacklisted Players:")
     listLabel:SetTextColor(1, 1, 0)
@@ -1456,7 +1355,7 @@ function SettingsManager:CreateBlacklistTab(parent)
     
     local scrollBg = scrollFrame:CreateTexture(nil, "BACKGROUND")
     scrollBg:SetAllPoints(scrollFrame)
-    scrollBg:SetColorTexture(0.1, 0.1, 0.1, 0.5)
+    scrollBg:SetColorTexture(T:GetColor("panel"))
     
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
     scrollChild:SetSize(530, 1)
@@ -1484,16 +1383,16 @@ function SettingsManager:CreateBlacklistTab(parent)
             -- Background
             local entryBg = entry:CreateTexture(nil, "BACKGROUND")
             entryBg:SetAllPoints(entry)
-            entryBg:SetColorTexture(0.2, 0.2, 0.2, 0.3)
+            entryBg:SetColorTexture(T:GetColor("control"))
             
             -- Player name
-            local nameText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            local nameText = entry:CreateFontString(nil, "OVERLAY", "FGRFontBody")
             nameText:SetPoint("LEFT", entry, "LEFT", 5, 0)
             nameText:SetText(data.name or key)
             nameText:SetTextColor(1, 0.5, 0.5)
             
             -- Reason
-            local reasonText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            local reasonText = entry:CreateFontString(nil, "OVERLAY", "FGRFontCaption")
             reasonText:SetPoint("LEFT", nameText, "RIGHT", 20, 0)
             reasonText:SetWidth(200)
             reasonText:SetJustifyH("LEFT")
@@ -1501,7 +1400,7 @@ function SettingsManager:CreateBlacklistTab(parent)
             reasonText:SetText("Reason: " .. displayReason)
             
             -- Date and who added
-            local infoText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            local infoText = entry:CreateFontString(nil, "OVERLAY", "FGRFontCaption")
             infoText:SetPoint("LEFT", reasonText, "RIGHT", 10, 0)
             infoText:SetTextColor(0.7, 0.7, 0.7)
             infoText:SetText("By: " .. (data.blBy or "Unknown") .. " - " .. (data.date or "Unknown"))
@@ -1553,17 +1452,12 @@ end
 
 function SettingsManager:CreateAntiSpamTab(parent)
     local yOffset = -10
-    local theme = ns.Theme
     
-    local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local header = T:Label(parent, "Anti-Spam Management", "textMain", T.type.display)
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
-    header:SetText("Anti-Spam Management")
-    if theme then
-        local r, g, b = theme:GetColor("accent")
-        header:SetTextColor(r, g, b)
-    else
-        header:SetTextColor(0.24, 0.73, 0.85)
-    end
+    local headerRule = T:Divider(parent, "border")
+    headerRule:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset - 26)
+    headerRule:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -20, yOffset - 26)
     yOffset = yOffset - 30
     
     -- Stats
@@ -1572,19 +1466,19 @@ function SettingsManager:CreateAntiSpamTab(parent)
         for _ in pairs(ns.tblAntiSpamList) do count = count + 1 end
     end
     
-    local stats = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    local stats = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     stats:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     stats:SetText("Currently tracked players: " .. count)
     yOffset = yOffset - 30
     
-    local noteText = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    local noteText = parent:CreateFontString(nil, "ARTWORK", "FGRFontCaption")
     noteText:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     noteText:SetText("Players in this list have been recently contacted and won't receive duplicate messages.")
     noteText:SetTextColor(1, 1, 0)
     yOffset = yOffset - 40
     
     -- Anti-Spam List Display
-    local listLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local listLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     listLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     listLabel:SetText("Recently Contacted Players:")
     listLabel:SetTextColor(1, 1, 0)
@@ -1597,7 +1491,7 @@ function SettingsManager:CreateAntiSpamTab(parent)
     
     local scrollBg = scrollFrame:CreateTexture(nil, "BACKGROUND")
     scrollBg:SetAllPoints(scrollFrame)
-    scrollBg:SetColorTexture(0.1, 0.1, 0.1, 0.5)
+    scrollBg:SetColorTexture(T:GetColor("panel"))
     
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
     scrollChild:SetSize(530, 1)
@@ -1641,13 +1535,13 @@ function SettingsManager:CreateAntiSpamTab(parent)
             entryBg:SetColorTexture(bgColor, bgColor, 0.3, 0.3)
             
             -- Player name
-            local nameText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            local nameText = entry:CreateFontString(nil, "OVERLAY", "FGRFontBody")
             nameText:SetPoint("LEFT", entry, "LEFT", 5, 0)
             nameText:SetText(data.name or key)
             nameText:SetTextColor(0.8, 0.8, 1)
             
             -- Time contacted
-            local timeText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            local timeText = entry:CreateFontString(nil, "OVERLAY", "FGRFontCaption")
             timeText:SetPoint("LEFT", nameText, "RIGHT", 30, 0)
             timeText:SetTextColor(0.7, 0.7, 0.7)
             if data.time then
@@ -1662,7 +1556,7 @@ function SettingsManager:CreateAntiSpamTab(parent)
                 daysSince = math.floor((time() - data.time) / 86400)
             end
             
-            local daysText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            local daysText = entry:CreateFontString(nil, "OVERLAY", "FGRFontCaption")
             daysText:SetPoint("LEFT", timeText, "RIGHT", 30, 0)
             daysText:SetTextColor(0.5, 1, 0.5)
             daysText:SetText(daysSince .. " days ago")
@@ -1737,13 +1631,13 @@ function SettingsManager:CreateAntiSpamTab(parent)
     yOffset = yOffset - 60
     
     -- Information section
-    local infoLabel = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local infoLabel = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     infoLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     infoLabel:SetText("Information:")
     infoLabel:SetTextColor(1, 1, 0)
     yOffset = yOffset - 25
     
-    local infoText = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    local infoText = parent:CreateFontString(nil, "ARTWORK", "FGRFontCaption")
     infoText:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     infoText:SetText("• Players are automatically added when you send them recruitment messages\n" ..
                      "• Old entries are automatically cleaned up based on your anti-spam duration setting\n" ..
@@ -1755,20 +1649,15 @@ end
 
 function SettingsManager:CreateZonesTab(parent)
     local yOffset = -10
-    local theme = ns.Theme
     
-    local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local header = T:Label(parent, "Zone Management", "textMain", T.type.display)
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
-    header:SetText("Zone Management")
-    if theme then
-        local r, g, b = theme:GetColor("accent")
-        header:SetTextColor(r, g, b)
-    else
-        header:SetTextColor(0.24, 0.73, 0.85)
-    end
+    local headerRule = T:Divider(parent, "border")
+    headerRule:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset - 26)
+    headerRule:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -20, yOffset - 26)
     yOffset = yOffset - 40
     
-    local comingSoon = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local comingSoon = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     comingSoon:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     comingSoon:SetText("Zone management will be available soon.\nThis will allow you to mark zones as invalid for recruitment.")
     comingSoon:SetJustifyH("LEFT")
@@ -1777,80 +1666,60 @@ end
 
 function SettingsManager:CreateAboutTab(parent)
     local yOffset = -10
-    local theme = ns.Theme
     
-    local header = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local header = T:Label(parent, "About Fast Guild Recruiter", "textMain", T.type.display)
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
-    header:SetText("About Fast Guild Recruiter")
-    if theme then
-        local r, g, b = theme:GetColor("accent")
-        header:SetTextColor(r, g, b)
-    else
-        header:SetTextColor(0.24, 0.73, 0.85)
-    end
+    local headerRule = T:Divider(parent, "border")
+    headerRule:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset - 26)
+    headerRule:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -20, yOffset - 26)
     yOffset = yOffset - 40
     
-    local version = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local version = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     version:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     version:SetText("Version: " .. (FGR.version or "Unknown"))
     yOffset = yOffset - 25
     
-    local author = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local author = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     author:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     author:SetText("Author: " .. (FGR.author or "Unknown"))
     yOffset = yOffset - 40
     
-    local linksHeader = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    local linksHeader = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     linksHeader:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     linksHeader:SetText("Links:")
     linksHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 25
     
-    local discord = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    local discord = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     discord:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     discord:SetText("Discord: " .. (ns.Links and ns.Links.DISCORD or ""))
     yOffset = yOffset - 20
     
-    local curseforge = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    local curseforge = parent:CreateFontString(nil, "ARTWORK", "FGRFontBody")
     curseforge:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     curseforge:SetText("CurseForge: " .. (ns.Links and ns.Links.CURSE_FORGE or ""))
 
-    local header2 = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local header2 = parent:CreateFontString(nil, "ARTWORK", "FGRFontTitle")
     header2:SetPoint("CENTER", parent, "CENTER", 10, yOffset)
     header2:SetText("Buy me a Coffee @ https://buymeacoffee.com/patricnoxdev")
-    if theme then
-        local r, g, b = theme:GetColor("accent")
-        header2:SetTextColor(r, g, b)
-    else
-        header2:SetTextColor(0.24, 0.73, 0.85)
-    end
+    header2:SetTextColor(T:GetColor("accentStrong"))
     yOffset = yOffset - 40
 end
 
-function SettingsManager:OpenSettings()
-    print("|cFF3EB9D8[FGR]|r Opening FGR settings window...")
-    
-    -- Initialize if not already done
+function SettingsManager:OpenSettings(tabId)
     if not self.isInitialized then
         self:Initialize()
     end
-    
-    -- Use WindowManager to show this window (and close others)
+    if tabId then self.currentTab = tabId end
+
     if ns.WindowManager then
         ns.WindowManager:ShowWindow("settings")
-    else
-        -- Fallback if WindowManager not available
-        if self.settingsFrame then
-            if self.settingsFrame:IsShown() then
-                self:CleanupAndHide()
-            else
-                self.settingsFrame:Show()
-                if self.currentTab then
-                    self:ShowTab(self.currentTab)
-                else
-                    self:ShowTab("general")
-                end
-            end
+    elseif self.settingsFrame then
+        if self.settingsFrame:IsShown() then
+            self:CleanupAndHide()
+        else
+            self.settingsFrame:Show()
+            self:ShowTab(self.currentTab or "general")
         end
     end
 end

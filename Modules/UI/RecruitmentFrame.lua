@@ -271,15 +271,19 @@ function RecruitmentFrame:RefreshPlayerList()
     table.sort(sorted, function(a, b) return (a.name or "") < (b.name or "") end)
 
     local yOffset = 0
-    local entryHeight = self.isCompactMode and 20 or 22
-    local spacing = 1
+    local entryHeight = self.isCompactMode and 20 or 26
 
     for _, playerData in ipairs(sorted) do
         self:CreatePlayerEntry(playerData, yOffset)
-        yOffset = yOffset - (entryHeight + spacing)
+        yOffset = yOffset - entryHeight
     end
 
     self.playerScrollChild:SetHeight(math.abs(yOffset) + 10)
+
+    if self.emptyState then self.emptyState:SetShown(#sorted == 0) end
+    if self.playerScrollFrame and self.playerScrollFrame.fgrUpdateThumb then
+        self.playerScrollFrame.fgrUpdateThumb()
+    end
 end
 
 function RecruitmentFrame:UpdateActionButtonVisibility()
@@ -509,129 +513,85 @@ function RecruitmentFrame:SendWhisper(message, target)
 end
 
 -------------------------------------------------------------------------------
--- Theme Helper
+-- Theme Helpers
 -------------------------------------------------------------------------------
 
+local T = ns.Theme
+
 local function tc(name)
-    if ns.Theme then return ns.Theme:GetColor(name) end
-    local fallback = {
-        background = {0.05, 0.06, 0.09, 0.95},
-        panel = {0.08, 0.09, 0.14, 0.92},
-        panelBorder = {0.35, 0.25, 0.55, 0.45},
-        accent = {0.63, 0.43, 0.96, 1.0},
-        accentSoft = {0.46, 0.36, 0.78, 0.7},
-        text = {0.92, 0.92, 0.98, 1.0},
-        muted = {0.65, 0.66, 0.74, 1.0},
-        warning = {1.0, 0.75, 0.2, 1.0},
-    }
-    local c = fallback[name] or {1, 1, 1, 1}
-    return c[1], c[2], c[3], c[4]
+    if T then return T:GetColor(name) end
+    return 1, 1, 1, 1
+end
+
+local function label(parent, text, tone, size)
+    return T:Label(parent, text, tone, size)
+end
+
+local function eyebrow(parent, text, tone)
+    return T:Eyebrow(parent, text, tone)
+end
+
+local function button(parent, text, variant, opts)
+    return T:Button(parent, text, variant, opts)
 end
 
 local function createSep(parent, yOff)
-    local sep = parent:CreateTexture(nil, "ARTWORK")
-    sep:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, yOff)
-    sep:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -12, yOff)
-    sep:SetHeight(1)
-    local r, g, b = tc("panelBorder")
-    sep:SetColorTexture(r, g, b, 0.25)
+    local sep = T:Divider(parent, "border")
+    sep:SetPoint("TOPLEFT", parent, "TOPLEFT", T.space.md, yOff)
+    sep:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -T.space.md, yOff)
     return sep
 end
 
-local function styleLabel(label, colorName)
-    local r, g, b = tc(colorName or "accent")
-    label:SetTextColor(r, g, b)
-end
-
-local function styleBtn(btn, isPrimary, fontSize)
-    if ns.Theme then ns.Theme:StyleButton(btn, isPrimary) end
-    if fontSize and btn:GetFontString() then
-        local font, _, flags = btn:GetFontString():GetFont()
-        btn:GetFontString():SetFont(font, fontSize, flags)
-    end
-end
+-- Column geometry for the full-mode list. One table so the header row and the
+-- player rows can never drift apart.
+local COLUMNS = {
+    check = 10,
+    name  = 32,
+    level = 210,
+    class = 248,
+    zone  = 356,
+    race  = 500,
+    rio   = -10, -- right-anchored
+}
 
 -------------------------------------------------------------------------------
--- UI CREATION - Main Frame
+-- UI CREATION - Window shell
 -------------------------------------------------------------------------------
 
 function RecruitmentFrame:CreateFrame()
-    local isCompact = self.compactMode or (ns.pSettings and ns.pSettings.isCompact) or false
+    local isCompact = self.compactMode
+    if isCompact == nil then isCompact = (ns.pSettings and ns.pSettings.isCompact) or false end
 
-    -- Destroy old frame if switching modes
     if self.frame then
         self.frame:Hide()
         self.frame:SetParent(nil)
         self.frame = nil
     end
 
-    local frame = CreateFrame("Frame", "FGRRecruitmentFrame", UIParent, "BasicFrameTemplateWithInset")
-
-    if isCompact then
-        frame:SetSize(260, 340)
-    else
-        frame:SetSize(720, 540)
-    end
-
-    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-    frame:SetFrameStrata("MEDIUM")
-    frame:Hide()
-
-    -- Title
-    frame.title = frame:CreateFontString(nil, "OVERLAY")
-    frame.title:SetFontObject(isCompact and "GameFontNormalSmall" or "GameFontHighlight")
-    frame.title:SetPoint("LEFT", frame.TitleBg, "LEFT", 5, 0)
-    frame.title:SetText(isCompact and "FGR" or "Fast Guild Recruiter")
-
-    if ns.Theme then
-        ns.Theme:ApplyFrame(frame, isCompact and "FGR" or "Fast Guild Recruiter")
-    end
-
-    -- Close button
-    if frame.CloseButton then
-        frame.CloseButton:SetScript("OnClick", function()
-            self:Hide()
-        end)
-    end
-
-    -- Mode toggle button (top-right, before close)
-    local toggleBtn = CreateFrame("Button", nil, frame)
-    toggleBtn:SetSize(20, 20)
-    toggleBtn:SetPoint("RIGHT", frame.CloseButton or frame, frame.CloseButton and "LEFT" or "TOPRIGHT", frame.CloseButton and -2 or -24, frame.CloseButton and 0 or -4)
-    toggleBtn:SetNormalFontObject("GameFontNormalSmall")
-
-    local toggleText = toggleBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    toggleText:SetPoint("CENTER")
-    toggleText:SetText(isCompact and "+" or "-")
-    local ar, ag, ab = tc("accent")
-    toggleText:SetTextColor(ar, ag, ab)
-
-    toggleBtn:SetScript("OnClick", function()
-        self:ToggleCompactMode()
-    end)
-    toggleBtn:SetScript("OnEnter", function(btn)
-        GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM")
-        GameTooltip:SetText(isCompact and "Switch to Full Mode" or "Switch to Compact Mode")
-        GameTooltip:Show()
-    end)
-    toggleBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-    -- Version text (normal mode only)
-    if not isCompact then
-        local verText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        verText:SetPoint("RIGHT", toggleBtn, "LEFT", -6, 0)
-        verText:SetText(FGR and FGR.versionOut or "")
-        local mr, mg, mb = tc("muted")
-        verText:SetTextColor(mr, mg, mb, 0.6)
-    end
+    local frame = T:Window({
+        name = "FGRRecruitmentFrame",
+        title = isCompact and "FGR" or "Fast Guild Recruiter",
+        titleSize = isCompact and T.type.body or T.type.title,
+        width = isCompact and 300 or 760,
+        height = isCompact and 380 or 560,
+        headerHeight = isCompact and 28 or T.sizes.header,
+        onClose = function() self:Hide() end,
+    })
 
     self.frame = frame
     self.isCompactMode = isCompact
+
+    -- Header chrome: version, then the density toggle, then close.
+    -- ASCII glyphs on purpose: the game fonts don't carry box-drawing symbols.
+    local toggleBtn = T:IconButton(frame.TitleBg, isCompact and "+" or "-",
+        isCompact and "Switch to full mode" or "Switch to compact mode", "textMuted")
+    toggleBtn:SetPoint("RIGHT", frame.CloseButton, "LEFT", -2, 0)
+    toggleBtn:SetScript("OnClick", function() self:ToggleCompactMode() end)
+
+    if not isCompact then
+        local verText = label(frame.TitleBg, FGR and FGR.versionOut or "", "textSoft", T.type.micro)
+        verText:SetPoint("RIGHT", toggleBtn, "LEFT", -T.space.sm, 0)
+    end
 
     if isCompact then
         self:CreateCompactUI()
@@ -647,12 +607,10 @@ function RecruitmentFrame:ToggleCompactMode()
     local wasShown = self.frame and self.frame:IsShown()
     self.compactMode = not self.isCompactMode
 
-    -- Save preference
     if ns.pSettings then
         ns.pSettings.isCompact = self.compactMode
     end
 
-    -- Rebuild
     self._registeredWindow = false
     self.isInitialized = false
     self:CreateFrame()
@@ -664,407 +622,377 @@ function RecruitmentFrame:ToggleCompactMode()
 end
 
 -------------------------------------------------------------------------------
--- NORMAL MODE UI
+-- FULL MODE UI
+--
+-- Vertical rhythm: toolbar / filters / mode / list / footer. Each band is its
+-- own frame so the sections stay independently editable, separated by hairlines
+-- rather than boxes-inside-boxes.
 -------------------------------------------------------------------------------
 
 function RecruitmentFrame:CreateNormalUI()
     local frame = self.frame
-    local yOff = -30
+    local body = frame.body
+    local PAD = T.space.md
 
-    -- ===== TOP BAR: Scan + Cooldown + Class info =====
-    local topBar = CreateFrame("Frame", nil, frame)
-    topBar:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, yOff)
-    topBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, yOff)
-    topBar:SetHeight(28)
+    -- ===== TOOLBAR =====
+    local toolbar = CreateFrame("Frame", nil, body)
+    toolbar:SetPoint("TOPLEFT", body, "TOPLEFT", PAD, -T.space.md)
+    toolbar:SetPoint("TOPRIGHT", body, "TOPRIGHT", -PAD, -T.space.md)
+    toolbar:SetHeight(30)
 
-    local scanBtn = CreateFrame("Button", nil, topBar, "UIPanelButtonTemplate")
-    scanBtn:SetPoint("LEFT", topBar, "LEFT", 4, 0)
-    scanBtn:SetSize(80, 24)
-    scanBtn:SetText("Scan")
+    local scanBtn = button(toolbar, "Scan", "primary", { width = 88, height = 28, fontSize = T.type.bodyLg })
+    scanBtn:SetPoint("LEFT", toolbar, "LEFT", 0, 0)
     scanBtn:SetScript("OnClick", function() self:StartPlayerScan() end)
-    styleBtn(scanBtn, true)
+    scanBtn.fgrTooltip = "Run a /who sweep for the current level range and class filter"
     self.scanButton = scanBtn
 
-    local cooldownText = topBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    cooldownText:SetPoint("LEFT", scanBtn, "RIGHT", 8, 0)
-    cooldownText:SetText("")
-    cooldownText:SetTextColor(1, 0.6, 0.2)
+    local cooldownText = label(toolbar, "", "warning", T.type.caption)
+    cooldownText:SetPoint("LEFT", scanBtn, "RIGHT", T.space.md, 0)
     self.cooldownText = cooldownText
 
-    local nextClassText = topBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    nextClassText:SetPoint("LEFT", cooldownText, "RIGHT", 8, 0)
-    nextClassText:SetText("")
-    styleLabel(nextClassText, "muted")
+    local nextClassText = label(toolbar, "", "textSoft", T.type.caption)
+    nextClassText:SetPoint("LEFT", cooldownText, "RIGHT", T.space.sm, 0)
     self.nextClassText = nextClassText
 
-    -- Session stats (right-aligned in top bar)
-    local statsText = topBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    statsText:SetPoint("RIGHT", topBar, "RIGHT", -4, 0)
-    statsText:SetText("")
-    styleLabel(statsText, "muted")
+    -- Session counters, right-aligned as stat tiles.
+    local statsText = label(toolbar, "", "textMuted", T.type.caption)
+    statsText:SetPoint("RIGHT", toolbar, "RIGHT", 0, 0)
+    statsText:SetJustifyH("RIGHT")
     self.statsText = statsText
 
-    yOff = yOff - 30
-    createSep(frame, yOff)
-    yOff = yOff - 6
+    local statsCaption = eyebrow(toolbar, "Session")
+    statsCaption:SetPoint("BOTTOMRIGHT", statsText, "TOPRIGHT", 0, 1)
 
-    -- ===== FILTER ROW =====
-    local filterRow = CreateFrame("Frame", nil, frame)
-    filterRow:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, yOff)
-    filterRow:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, yOff)
+    local yOff = -T.space.md - 30 - T.space.md
+    createSep(body, yOff)
+    yOff = yOff - T.space.md
+
+    -- ===== FILTER BAND =====
+    local filterRow = CreateFrame("Frame", nil, body)
+    filterRow:SetPoint("TOPLEFT", body, "TOPLEFT", PAD, yOff)
+    filterRow:SetPoint("TOPRIGHT", body, "TOPRIGHT", -PAD, yOff)
     filterRow:SetHeight(22)
 
-    local levelLabel = filterRow:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    levelLabel:SetPoint("LEFT", filterRow, "LEFT", 4, 0)
-    levelLabel:SetText("Level:")
-    styleLabel(levelLabel, "muted")
+    local levelLabel = eyebrow(filterRow, "Levels")
+    levelLabel:SetPoint("LEFT", filterRow, "LEFT", 0, 0)
 
-    local levelDisplay = filterRow:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    levelDisplay:SetPoint("LEFT", levelLabel, "RIGHT", 4, 0)
-    levelDisplay:SetTextColor(1, 1, 1)
+    local levelDisplay = label(filterRow, "", "textMain", T.type.body)
+    levelDisplay:SetPoint("LEFT", levelLabel, "RIGHT", T.space.sm, 0)
     self.levelDisplay = levelDisplay
 
-    local zoneFilterCheck = CreateFrame("CheckButton", nil, filterRow, "InterfaceOptionsCheckButtonTemplate")
-    zoneFilterCheck:SetPoint("LEFT", levelDisplay, "RIGHT", 14, 0)
-    zoneFilterCheck:SetScale(0.82)
-    zoneFilterCheck.Text:SetText("Zone filter")
+    local zoneFilterCheck = T:Checkbox(filterRow, "Zone filter", { fontSize = T.type.caption })
+    zoneFilterCheck:SetPoint("LEFT", levelDisplay, "RIGHT", T.space.xl, 0)
     zoneFilterCheck:SetChecked(true)
     self.zoneFilterCheck = zoneFilterCheck
 
-    local classFilterCheck = CreateFrame("CheckButton", nil, filterRow, "InterfaceOptionsCheckButtonTemplate")
-    classFilterCheck:SetPoint("LEFT", zoneFilterCheck.Text, "RIGHT", 10, 0)
-    classFilterCheck:SetScale(0.82)
-    classFilterCheck.Text:SetText("Class filter")
+    local classFilterCheck = T:Checkbox(filterRow, "Class filter", { fontSize = T.type.caption })
+    classFilterCheck:SetPoint("LEFT", zoneFilterCheck.Text, "RIGHT", T.space.lg, 0)
     classFilterCheck:SetChecked((ns.pSettings and ns.pSettings.enableClassFilter) or false)
     classFilterCheck:SetScript("OnClick", function(cb)
         if not ns.pSettings then ns.pSettings = {} end
         ns.pSettings.enableClassFilter = cb:GetChecked()
         RecruitmentFrame:UpdateClassFilterDisplay()
+        RecruitmentFrame:UpdateNextClassIndicator()
     end)
     self.classFilterCheck = classFilterCheck
 
-    local classFilterInfo = filterRow:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    classFilterInfo:SetPoint("LEFT", classFilterCheck.Text, "RIGHT", 10, 0)
-    classFilterInfo:SetPoint("RIGHT", filterRow, "RIGHT", -4, 0)
-    classFilterInfo:SetJustifyH("LEFT")
-    styleLabel(classFilterInfo, "muted")
+    local classFilterInfo = label(filterRow, "", "textSoft", T.type.caption)
+    classFilterInfo:SetPoint("LEFT", classFilterCheck.Text, "RIGHT", T.space.md, 0)
+    classFilterInfo:SetPoint("RIGHT", filterRow, "RIGHT", 0, 0)
+    classFilterInfo:SetWordWrap(false)
     self.classFilterInfo = classFilterInfo
 
-    yOff = yOff - 24
-    createSep(frame, yOff)
-    yOff = yOff - 6
+    yOff = yOff - 22 - T.space.md
+    createSep(body, yOff)
+    yOff = yOff - T.space.md
 
-    -- ===== INVITE STYLE ROW =====
-    local msgRow = CreateFrame("Frame", nil, frame)
-    msgRow:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, yOff)
-    msgRow:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, yOff)
+    -- ===== MODE BAND =====
+    local msgRow = CreateFrame("Frame", nil, body)
+    msgRow:SetPoint("TOPLEFT", body, "TOPLEFT", PAD, yOff)
+    msgRow:SetPoint("TOPRIGHT", body, "TOPRIGHT", -PAD, yOff)
     msgRow:SetHeight(26)
 
-    local msgLabel = msgRow:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    msgLabel:SetPoint("LEFT", msgRow, "LEFT", 4, 0)
-    msgLabel:SetText("Mode:")
-    styleLabel(msgLabel, "accent")
+    local msgLabel = eyebrow(msgRow, "Action")
+    msgLabel:SetPoint("LEFT", msgRow, "LEFT", 0, 0)
 
-    local msgDropdown = CreateFrame("Frame", nil, msgRow, "UIDropDownMenuTemplate")
-    msgDropdown:SetPoint("LEFT", msgLabel, "RIGHT", -4, -2)
-    msgDropdown:SetScale(0.85)
-    UIDropDownMenu_SetWidth(msgDropdown, 360)
+    local msgDropdown = CreateFrame("Frame", "FGRModeDropdown", msgRow, "UIDropDownMenuTemplate")
+    msgDropdown:SetPoint("LEFT", msgLabel, "RIGHT", -8, -2)
+    UIDropDownMenu_SetWidth(msgDropdown, 380)
+    T:StyleDropdown(msgDropdown)
 
     local ref = self
     UIDropDownMenu_Initialize(msgDropdown, function(dropdown, level)
-        local messageList = ref:GetMessageList()
-        local info = UIDropDownMenu_CreateInfo()
-        info.text = "Invite Only (No Message)"
-        info.value = "invite_only"
-        info.func = function()
-            UIDropDownMenu_SetSelectedValue(msgDropdown, "invite_only")
-            ref.selectedMessage = nil
-            ref.inviteMode = "invite_only"
-            ref:UpdateInviteButtonLabel()
-        end
-        UIDropDownMenu_AddButton(info, level)
-
-        for i, msgData in ipairs(messageList) do
-            local invInfo = UIDropDownMenu_CreateInfo()
-            invInfo.text = "Invite + Msg: " .. (msgData.desc or ("Message " .. i))
-            invInfo.value = "invite_and_message_" .. i
-            invInfo.func = function()
-                UIDropDownMenu_SetSelectedValue(msgDropdown, "invite_and_message_" .. i)
-                ref.selectedMessage = msgData
-                ref.inviteMode = "invite_and_message"
-                ref:UpdateInviteButtonLabel()
-            end
-            UIDropDownMenu_AddButton(invInfo, level)
-
-            local msgInfo = UIDropDownMenu_CreateInfo()
-            msgInfo.text = "Message Only: " .. (msgData.desc or ("Message " .. i))
-            msgInfo.value = "just_message_" .. i
-            msgInfo.func = function()
-                UIDropDownMenu_SetSelectedValue(msgDropdown, "just_message_" .. i)
-                ref.selectedMessage = msgData
-                ref.inviteMode = "just_message"
-                ref:UpdateInviteButtonLabel()
-            end
-            UIDropDownMenu_AddButton(msgInfo, level)
-        end
+        ref:BuildModeMenu(msgDropdown, level)
     end)
 
     UIDropDownMenu_SetSelectedValue(msgDropdown, "invite_only")
     self.messageDropdown = msgDropdown
     self.inviteMode = "invite_only"
 
-    yOff = yOff - 28
-    createSep(frame, yOff)
-    yOff = yOff - 4
+    yOff = yOff - 26 - T.space.md
+    createSep(body, yOff)
+    yOff = yOff - T.space.md
 
-    -- ===== PLAYER LIST HEADER =====
-    local listHeaderRow = CreateFrame("Frame", nil, frame)
-    listHeaderRow:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, yOff)
-    listHeaderRow:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, yOff)
+    -- ===== LIST HEADER =====
+    local listHeaderRow = CreateFrame("Frame", nil, body)
+    listHeaderRow:SetPoint("TOPLEFT", body, "TOPLEFT", PAD, yOff)
+    listHeaderRow:SetPoint("TOPRIGHT", body, "TOPRIGHT", -PAD, yOff)
     listHeaderRow:SetHeight(20)
 
-    local listHeader = listHeaderRow:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    listHeader:SetPoint("LEFT", listHeaderRow, "LEFT", 4, 0)
-    listHeader:SetText("Found Players: 0")
-    styleLabel(listHeader, "accent")
+    local listHeader = label(listHeaderRow, "Found Players: 0", "textMain", T.type.bodyLg)
+    listHeader:SetPoint("LEFT", listHeaderRow, "LEFT", 0, 0)
     self.listHeader = listHeader
 
-    local selectAllBtn = CreateFrame("Button", nil, listHeaderRow, "UIPanelButtonTemplate")
-    selectAllBtn:SetPoint("LEFT", listHeader, "RIGHT", 12, 0)
-    selectAllBtn:SetSize(65, 18)
-    selectAllBtn:SetText("Select All")
-    styleBtn(selectAllBtn, false, 10)
-    selectAllBtn:SetScript("OnClick", function() self:SelectAllPlayersButton() end)
-    self.selectAllBtn = selectAllBtn
+    local selectionBadge = T:Badge(listHeaderRow, "0 selected", "accent")
+    selectionBadge:SetPoint("LEFT", listHeader, "RIGHT", T.space.sm, 0)
+    self.selectionBadge = selectionBadge
 
-    local deselectAllBtn = CreateFrame("Button", nil, listHeaderRow, "UIPanelButtonTemplate")
-    deselectAllBtn:SetPoint("LEFT", selectAllBtn, "RIGHT", 4, 0)
-    deselectAllBtn:SetSize(60, 18)
-    deselectAllBtn:SetText("Deselect")
-    styleBtn(deselectAllBtn, false, 10)
+    local deselectAllBtn = button(listHeaderRow, "Deselect", "ghost", { width = 62, height = 18, fontSize = T.type.caption })
+    deselectAllBtn:SetPoint("RIGHT", listHeaderRow, "RIGHT", 0, 0)
     deselectAllBtn:SetScript("OnClick", function() self:DeselectAllPlayersButton() end)
     self.deselectAllBtn = deselectAllBtn
 
-    yOff = yOff - 22
+    local selectAllBtn = button(listHeaderRow, "Select all", "ghost", { width = 66, height = 18, fontSize = T.type.caption })
+    selectAllBtn:SetPoint("RIGHT", deselectAllBtn, "LEFT", T.space.xs, 0)
+    selectAllBtn:SetScript("OnClick", function() self:SelectAllPlayersButton() end)
+    self.selectAllBtn = selectAllBtn
 
-    -- Column headers
-    local colY = yOff
-    local hdrFont = "GameFontNormalSmall"
-    local cols = {
-        {x = 40, text = "Name"},
-        {x = 200, text = "Lvl"},
-        {x = 240, text = "Class"},
-        {x = 370, text = "Zone"},
-        {x = 530, text = "Race"},
-    }
-    for _, col in ipairs(cols) do
-        local h = frame:CreateFontString(nil, "ARTWORK", hdrFont)
-        h:SetPoint("TOPLEFT", frame, "TOPLEFT", col.x, colY)
-        h:SetText(col.text)
-        styleLabel(h, "muted")
+    yOff = yOff - 20 - T.space.sm
+
+    -- ===== COLUMN HEADERS =====
+    local colRow = CreateFrame("Frame", nil, body)
+    colRow:SetPoint("TOPLEFT", body, "TOPLEFT", PAD, yOff)
+    colRow:SetPoint("TOPRIGHT", body, "TOPRIGHT", -PAD, yOff)
+    colRow:SetHeight(16)
+
+    for _, col in ipairs({
+        { x = COLUMNS.name,  text = "Name" },
+        { x = COLUMNS.level, text = "Lvl" },
+        { x = COLUMNS.class, text = "Class" },
+        { x = COLUMNS.zone,  text = "Zone" },
+        { x = COLUMNS.race,  text = "Race" },
+    }) do
+        local h = eyebrow(colRow, col.text)
+        h:SetPoint("LEFT", colRow, "LEFT", col.x, 0)
     end
+
+    local colRule = T:Divider(colRow, "border")
+    colRule:SetPoint("BOTTOMLEFT", colRow, "BOTTOMLEFT", 0, 0)
+    colRule:SetPoint("BOTTOMRIGHT", colRow, "BOTTOMRIGHT", 0, 0)
 
     yOff = yOff - 16
 
-    -- ===== SCROLL FRAME =====
-    local scrollFrame = CreateFrame("ScrollFrame", nil, frame)
-    scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, yOff)
-    scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 52)
-
-    -- Subtle inset background
-    local scrollBg = scrollFrame:CreateTexture(nil, "BACKGROUND")
-    scrollBg:SetPoint("TOPLEFT", -1, 1)
-    scrollBg:SetPoint("BOTTOMRIGHT", 1, -1)
-    local pr, pg, pb, pa = tc("panel")
-    scrollBg:SetColorTexture(pr, pg, pb, pa * 0.7)
-
-    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetSize(scrollFrame:GetWidth() - 10, 1)
-    scrollFrame:SetScrollChild(scrollChild)
-
-    scrollFrame:EnableMouseWheel(true)
-    scrollFrame:SetScript("OnMouseWheel", function(sf, delta)
-        local cur = sf:GetVerticalScroll()
-        local max = sf:GetVerticalScrollRange()
-        sf:SetVerticalScroll(math.max(0, math.min(cur - (delta * 24), max)))
-    end)
+    -- ===== LIST =====
+    local scrollFrame, scrollChild = T:ScrollArea(body, { step = 30 })
+    scrollFrame:SetPoint("TOPLEFT", body, "TOPLEFT", PAD, yOff - 2)
+    scrollFrame:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -PAD - 5, 62)
+    scrollChild:SetWidth(frame:GetWidth() - (PAD * 2) - 5)
 
     self.playerScrollFrame = scrollFrame
     self.playerScrollChild = scrollChild
 
-    -- ===== BOTTOM ACTION BAR =====
-    local bottomBar = CreateFrame("Frame", nil, frame)
-    bottomBar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12, 6)
-    bottomBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 6)
-    bottomBar:SetHeight(42)
+    self.emptyState = T:EmptyState(scrollFrame, "No players yet",
+        "Press Scan to sweep for unguilded players in range.")
 
-    -- Status text
-    local statusText = bottomBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    statusText:SetPoint("BOTTOMLEFT", bottomBar, "BOTTOMLEFT", 4, 2)
-    statusText:SetText("Ready")
-    statusText:SetTextColor(0, 1, 0)
-    self.statusText = statusText
+    -- ===== FOOTER =====
+    local footer = CreateFrame("Frame", nil, body)
+    footer:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", 0, 0)
+    footer:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
+    footer:SetHeight(56)
+    T:Fill(footer, "sidebar")
 
-    -- Action buttons (top of bottom bar)
-    local sendInviteBtn = CreateFrame("Button", nil, bottomBar, "UIPanelButtonTemplate")
-    sendInviteBtn:SetPoint("TOPLEFT", bottomBar, "TOPLEFT", 4, 0)
-    sendInviteBtn:SetSize(110, 24)
-    sendInviteBtn:SetText("Send Invite")
+    local footerRule = T:Divider(footer, "border")
+    footerRule:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 0)
+    footerRule:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 0)
+
+    local sendInviteBtn = button(footer, "Send Invite", "primary", { width = 118, height = 26, fontSize = T.type.bodyLg })
+    sendInviteBtn:SetPoint("TOPLEFT", footer, "TOPLEFT", PAD, -T.space.sm)
     sendInviteBtn:SetScript("OnClick", function() self:SendNextInvite() end)
     sendInviteBtn:Hide()
-    styleBtn(sendInviteBtn, true)
     self.sendInviteBtn = sendInviteBtn
 
-    local blacklistBtn = CreateFrame("Button", nil, bottomBar, "UIPanelButtonTemplate")
-    blacklistBtn:SetPoint("LEFT", sendInviteBtn, "RIGHT", 6, 0)
-    blacklistBtn:SetSize(80, 24)
-    blacklistBtn:SetText("Blacklist")
+    local blacklistBtn = button(footer, "Blacklist", "danger", { width = 84, height = 26 })
+    blacklistBtn:SetPoint("LEFT", sendInviteBtn, "RIGHT", T.space.sm, 0)
     blacklistBtn:SetScript("OnClick", function() self:BlacklistSelectedPlayers() end)
     blacklistBtn:Hide()
     self.blacklistBtn = blacklistBtn
 
-    local clearBtn = CreateFrame("Button", nil, bottomBar, "UIPanelButtonTemplate")
-    clearBtn:SetPoint("LEFT", blacklistBtn, "RIGHT", 6, 0)
-    clearBtn:SetSize(55, 24)
-    clearBtn:SetText("Clear")
+    local clearBtn = button(footer, "Clear", "ghost", { width = 60, height = 26 })
+    clearBtn:SetPoint("LEFT", blacklistBtn, "RIGHT", T.space.xs, 0)
     clearBtn:SetScript("OnClick", function() self:ClearPlayerList() end)
     clearBtn:Hide()
     self.clearBtn = clearBtn
 
-    -- Settings button (right side)
-    local settingsBtn = CreateFrame("Button", nil, bottomBar, "UIPanelButtonTemplate")
-    settingsBtn:SetPoint("TOPRIGHT", bottomBar, "TOPRIGHT", -4, 0)
-    settingsBtn:SetSize(75, 24)
-    settingsBtn:SetText("Settings")
+    local settingsBtn = button(footer, "Settings", "secondary", { width = 82, height = 26 })
+    settingsBtn:SetPoint("TOPRIGHT", footer, "TOPRIGHT", -PAD, -T.space.sm)
     settingsBtn:SetScript("OnClick", function()
         if ns.SettingsManager then ns.SettingsManager:OpenSettings() end
     end)
 
-    -- Initialize displays
+    -- Status line sits under the actions, with a coloured dot as the indicator.
+    local statusDot = footer:CreateTexture(nil, "ARTWORK")
+    statusDot:SetSize(6, 6)
+    statusDot:SetPoint("BOTTOMLEFT", footer, "BOTTOMLEFT", PAD, T.space.sm + 3)
+    local sr, sg, sb = tc("success")
+    statusDot:SetColorTexture(sr, sg, sb, 1)
+    self.statusDot = statusDot
+
+    local statusText = label(footer, "Ready", "textMuted", T.type.caption)
+    statusText:SetPoint("LEFT", statusDot, "RIGHT", T.space.sm, 0)
+    statusText:SetPoint("RIGHT", settingsBtn, "LEFT", -T.space.md, 0)
+    self.statusText = statusText
+
     self:UpdateLevelDisplay()
     self:UpdateClassFilterDisplay()
+    self:UpdateNextClassIndicator()
+    self:UpdateSelectionCount()
+end
+
+-- Shared by both densities so the menu can't drift between them.
+function RecruitmentFrame:BuildModeMenu(dropdown, level)
+    local ref = self
+    local messageList = self:GetMessageList()
+
+    local info = UIDropDownMenu_CreateInfo()
+    info.text = "Invite only"
+    info.value = "invite_only"
+    info.func = function()
+        UIDropDownMenu_SetSelectedValue(dropdown, "invite_only")
+        ref.selectedMessage = nil
+        ref.inviteMode = "invite_only"
+        ref:UpdateInviteButtonLabel()
+    end
+    UIDropDownMenu_AddButton(info, level)
+
+    for i, msgData in ipairs(messageList) do
+        local desc = msgData.desc or ("Message " .. i)
+
+        local invInfo = UIDropDownMenu_CreateInfo()
+        invInfo.text = "Invite + whisper: " .. desc
+        invInfo.value = "invite_and_message_" .. i
+        invInfo.func = function()
+            UIDropDownMenu_SetSelectedValue(dropdown, "invite_and_message_" .. i)
+            ref.selectedMessage = msgData
+            ref.inviteMode = "invite_and_message"
+            ref:UpdateInviteButtonLabel()
+        end
+        UIDropDownMenu_AddButton(invInfo, level)
+
+        local msgInfo = UIDropDownMenu_CreateInfo()
+        msgInfo.text = "Whisper only: " .. desc
+        msgInfo.value = "just_message_" .. i
+        msgInfo.func = function()
+            UIDropDownMenu_SetSelectedValue(dropdown, "just_message_" .. i)
+            ref.selectedMessage = msgData
+            ref.inviteMode = "just_message"
+            ref:UpdateInviteButtonLabel()
+        end
+        UIDropDownMenu_AddButton(msgInfo, level)
+    end
 end
 
 -------------------------------------------------------------------------------
--- COMPACT MODE UI - Essentials only for playing at the same time
+-- COMPACT MODE UI - same actions, one column, no chrome
 -------------------------------------------------------------------------------
 
 function RecruitmentFrame:CreateCompactUI()
     local frame = self.frame
+    local body = frame.body
+    local PAD = T.space.sm
 
-    -- ===== SCAN ROW =====
-    local scanBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    scanBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -28)
-    scanBtn:SetSize(55, 20)
-    scanBtn:SetText("Scan")
-    styleBtn(scanBtn, true, 10)
+    local scanBtn = button(body, "Scan", "primary", { width = 60, height = 22, fontSize = T.type.caption })
+    scanBtn:SetPoint("TOPLEFT", body, "TOPLEFT", PAD, -T.space.sm)
     scanBtn:SetScript("OnClick", function() self:StartPlayerScan() end)
     self.scanButton = scanBtn
 
-    local cooldownText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    cooldownText:SetPoint("LEFT", scanBtn, "RIGHT", 5, 0)
-    cooldownText:SetText("")
-    cooldownText:SetTextColor(1, 0.6, 0.2)
+    local cooldownText = label(body, "", "warning", T.type.micro)
+    cooldownText:SetPoint("LEFT", scanBtn, "RIGHT", T.space.sm, 0)
     self.cooldownText = cooldownText
 
-    local nextClassText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    nextClassText:SetPoint("LEFT", cooldownText, "RIGHT", 4, 0)
-    nextClassText:SetText("")
-    styleLabel(nextClassText, "muted")
+    local nextClassText = label(body, "", "textSoft", T.type.micro)
+    nextClassText:SetPoint("LEFT", cooldownText, "RIGHT", T.space.xs, 0)
+    nextClassText:SetPoint("RIGHT", body, "RIGHT", -PAD, 0)
+    nextClassText:SetWordWrap(false)
     self.nextClassText = nextClassText
 
-    -- ===== PLAYER COUNT + SELECT =====
-    local listHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    listHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -50)
-    listHeader:SetText("Players: 0")
-    styleLabel(listHeader, "accent")
+    local listHeader = label(body, "Players: 0", "textMain", T.type.caption)
+    listHeader:SetPoint("TOPLEFT", body, "TOPLEFT", PAD, -T.space.sm - 26)
     self.listHeader = listHeader
 
-    local selectAllBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    selectAllBtn:SetPoint("LEFT", listHeader, "RIGHT", 6, 0)
-    selectAllBtn:SetSize(28, 16)
-    selectAllBtn:SetText("All")
-    styleBtn(selectAllBtn, false, 9)
-    selectAllBtn:SetScript("OnClick", function() self:SelectAllPlayersButton() end)
-    self.selectAllBtn = selectAllBtn
-
-    local deselectAllBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    deselectAllBtn:SetPoint("LEFT", selectAllBtn, "RIGHT", 2, 0)
-    deselectAllBtn:SetSize(34, 16)
-    deselectAllBtn:SetText("None")
-    styleBtn(deselectAllBtn, false, 9)
+    local deselectAllBtn = button(body, "None", "ghost", { width = 36, height = 16, fontSize = T.type.micro })
+    deselectAllBtn:SetPoint("RIGHT", body, "RIGHT", -PAD, 0)
+    deselectAllBtn:SetPoint("TOP", listHeader, "TOP", 0, 2)
     deselectAllBtn:SetScript("OnClick", function() self:DeselectAllPlayersButton() end)
     self.deselectAllBtn = deselectAllBtn
 
-    -- ===== PLAYER LIST =====
-    local scrollFrame = CreateFrame("ScrollFrame", nil, frame)
-    scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -66)
-    scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -6, 42)
+    local selectAllBtn = button(body, "All", "ghost", { width = 30, height = 16, fontSize = T.type.micro })
+    selectAllBtn:SetPoint("RIGHT", deselectAllBtn, "LEFT", 2, 0)
+    selectAllBtn:SetScript("OnClick", function() self:SelectAllPlayersButton() end)
+    self.selectAllBtn = selectAllBtn
 
-    local scrollBg = scrollFrame:CreateTexture(nil, "BACKGROUND")
-    scrollBg:SetPoint("TOPLEFT", -1, 1)
-    scrollBg:SetPoint("BOTTOMRIGHT", 1, -1)
-    local pr, pg, pb, pa = tc("panel")
-    scrollBg:SetColorTexture(pr, pg, pb, pa * 0.6)
+    local headerRule = T:Divider(body, "border")
+    headerRule:SetPoint("TOPLEFT", body, "TOPLEFT", PAD, -T.space.sm - 42)
+    headerRule:SetPoint("TOPRIGHT", body, "TOPRIGHT", -PAD, -T.space.sm - 42)
 
-    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetSize(scrollFrame:GetWidth() - 6, 1)
-    scrollFrame:SetScrollChild(scrollChild)
-
-    scrollFrame:EnableMouseWheel(true)
-    scrollFrame:SetScript("OnMouseWheel", function(sf, delta)
-        local cur = sf:GetVerticalScroll()
-        local max = sf:GetVerticalScrollRange()
-        sf:SetVerticalScroll(math.max(0, math.min(cur - (delta * 20), max)))
-    end)
+    local scrollFrame, scrollChild = T:ScrollArea(body, { step = 22 })
+    scrollFrame:SetPoint("TOPLEFT", body, "TOPLEFT", PAD, -T.space.sm - 46)
+    scrollFrame:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -PAD - 5, 50)
+    scrollChild:SetWidth(frame:GetWidth() - (PAD * 2) - 5)
 
     self.playerScrollFrame = scrollFrame
     self.playerScrollChild = scrollChild
 
-    -- ===== BOTTOM BUTTONS =====
-    local sendInviteBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    sendInviteBtn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 6, 22)
-    sendInviteBtn:SetSize(55, 18)
-    sendInviteBtn:SetText("Invite")
-    styleBtn(sendInviteBtn, true, 10)
+    self.emptyState = T:EmptyState(scrollFrame, "No players yet", "Press Scan.")
+
+    local footer = CreateFrame("Frame", nil, body)
+    footer:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", 0, 0)
+    footer:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
+    footer:SetHeight(46)
+    T:Fill(footer, "sidebar")
+
+    local footerRule = T:Divider(footer, "border")
+    footerRule:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 0)
+    footerRule:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 0)
+
+    local sendInviteBtn = button(footer, "Invite", "primary", { width = 62, height = 20, fontSize = T.type.caption })
+    sendInviteBtn:SetPoint("TOPLEFT", footer, "TOPLEFT", PAD, -T.space.xs)
     sendInviteBtn:SetScript("OnClick", function() self:SendNextInvite() end)
     sendInviteBtn:Hide()
     self.sendInviteBtn = sendInviteBtn
 
-    local blacklistBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    blacklistBtn:SetPoint("LEFT", sendInviteBtn, "RIGHT", 2, 0)
-    blacklistBtn:SetSize(45, 18)
-    blacklistBtn:SetText("Block")
-    styleBtn(blacklistBtn, false, 10)
+    local blacklistBtn = button(footer, "Block", "danger", { width = 48, height = 20, fontSize = T.type.caption })
+    blacklistBtn:SetPoint("LEFT", sendInviteBtn, "RIGHT", 3, 0)
     blacklistBtn:SetScript("OnClick", function() self:BlacklistSelectedPlayers() end)
     blacklistBtn:Hide()
     self.blacklistBtn = blacklistBtn
 
-    local clearBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    clearBtn:SetPoint("LEFT", blacklistBtn, "RIGHT", 2, 0)
-    clearBtn:SetSize(40, 18)
-    clearBtn:SetText("Clear")
-    styleBtn(clearBtn, false, 10)
+    local clearBtn = button(footer, "Clear", "ghost", { width = 44, height = 20, fontSize = T.type.caption })
+    clearBtn:SetPoint("LEFT", blacklistBtn, "RIGHT", 3, 0)
     clearBtn:SetScript("OnClick", function() self:ClearPlayerList() end)
     clearBtn:Hide()
     self.clearBtn = clearBtn
 
-    -- Status (bottom line)
-    local statusText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    statusText:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 6)
-    statusText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 6)
-    statusText:SetText("Ready")
-    statusText:SetTextColor(0, 1, 0)
-    statusText:SetJustifyH("LEFT")
+    local statusDot = footer:CreateTexture(nil, "ARTWORK")
+    statusDot:SetSize(5, 5)
+    statusDot:SetPoint("BOTTOMLEFT", footer, "BOTTOMLEFT", PAD, T.space.sm)
+    local sr, sg, sb = tc("success")
+    statusDot:SetColorTexture(sr, sg, sb, 1)
+    self.statusDot = statusDot
+
+    local statusText = label(footer, "Ready", "textMuted", T.type.micro)
+    statusText:SetPoint("LEFT", statusDot, "RIGHT", 5, 0)
+    statusText:SetPoint("RIGHT", footer, "RIGHT", -PAD, 0)
+    statusText:SetWordWrap(false)
     self.statusText = statusText
 
-    -- No extras in compact mode
+    -- Not present at this density.
     self.statsText = nil
     self.zoneFilterCheck = nil
     self.classFilterCheck = nil
     self.classFilterInfo = nil
     self.messageDropdown = nil
     self.levelDisplay = nil
+    self.selectionBadge = nil
     self.inviteMode = "invite_only"
 end
 
@@ -1073,43 +1001,49 @@ end
 -------------------------------------------------------------------------------
 
 function RecruitmentFrame:CreatePlayerEntry(playerData, yOffset)
-    local classColor = RAID_CLASS_COLORS[playerData.class] or {r = 1, g = 1, b = 1}
+    local classColor = RAID_CLASS_COLORS[playerData.class] or { r = 0.9, g = 0.9, b = 0.9 }
     local isCompact = self.isCompactMode
-    local entryHeight = isCompact and 18 or 22
+    local entryHeight = isCompact and 20 or 26
     local parentWidth = self.playerScrollChild:GetWidth()
 
-    local entry = CreateFrame("Frame", nil, self.playerScrollChild)
+    local entry = CreateFrame("Button", nil, self.playerScrollChild)
     entry:SetPoint("TOPLEFT", self.playerScrollChild, "TOPLEFT", 0, yOffset)
     entry:SetSize(parentWidth, entryHeight)
 
-    -- Alternating row background
+    -- Row surface. Selected rows get a soft accent wash plus a left rail; the
+    -- old alternating stripes are gone, they fought with the class colour.
     local bg = entry:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints(entry)
-    local rowIndex = math.abs(yOffset / (entryHeight + 1))
-    local pr, pg, pb, pa = tc("panel")
-    if (rowIndex % 2) == 0 then
-        bg:SetColorTexture(pr * 1.3, pg * 1.3, pb * 1.3, pa * 0.5)
-    else
-        bg:SetColorTexture(pr, pg, pb, pa * 0.3)
+
+    local rail = entry:CreateTexture(nil, "ARTWORK")
+    rail:SetPoint("TOPLEFT", entry, "TOPLEFT", 0, 0)
+    rail:SetPoint("BOTTOMLEFT", entry, "BOTTOMLEFT", 0, 0)
+    rail:SetWidth(2)
+    rail:SetColorTexture(classColor.r, classColor.g, classColor.b, 0.9)
+
+    local rule = T:Divider(entry, "border")
+    rule:SetPoint("BOTTOMLEFT", entry, "BOTTOMLEFT", 0, 0)
+    rule:SetPoint("BOTTOMRIGHT", entry, "BOTTOMRIGHT", 0, 0)
+    rule:SetAlpha(0.5)
+
+    entry.fgrHovered = false
+    local function paintRow()
+        local selected = selectedPlayers[playerData.name] ~= nil
+        if selected then
+            local ar, ag, ab = tc("accent")
+            bg:SetColorTexture(ar, ag, ab, entry.fgrHovered and 0.20 or 0.13)
+        elseif entry.fgrHovered then
+            local hr, hg, hb = tc("panelHover")
+            bg:SetColorTexture(hr, hg, hb, 1)
+        else
+            bg:SetColorTexture(0, 0, 0, 0)
+        end
     end
+    entry.fgrPaint = paintRow
 
-    -- Hover highlight
-    local highlight = entry:CreateTexture(nil, "HIGHLIGHT")
-    highlight:SetAllPoints(entry)
-    local ar, ag, ab = tc("accent")
-    highlight:SetColorTexture(ar, ag, ab, 0.08)
-
-    -- Class color bar (left edge)
-    local classBorder = entry:CreateTexture(nil, "OVERLAY")
-    classBorder:SetPoint("LEFT", entry, "LEFT", 0, 0)
-    classBorder:SetSize(2, entryHeight)
-    classBorder:SetColorTexture(classColor.r, classColor.g, classColor.b, 0.85)
-
-    -- Checkbox
-    local checkbox = CreateFrame("CheckButton", nil, entry, "InterfaceOptionsCheckButtonTemplate")
-    checkbox:SetPoint("LEFT", entry, "LEFT", 4, 0)
-    checkbox:SetSize(isCompact and 16 or 18, isCompact and 16 or 18)
-    if isCompact then checkbox:SetScale(0.8) end
+    local checkSize = isCompact and 13 or 14
+    local checkbox = T:Checkbox(entry, nil, { size = checkSize })
+    checkbox:SetPoint("LEFT", entry, "LEFT", isCompact and 6 or COLUMNS.check, 0)
     checkbox:SetChecked(selectedPlayers[playerData.name] ~= nil)
     checkbox:SetScript("OnClick", function(cb)
         if cb:GetChecked() then
@@ -1117,82 +1051,78 @@ function RecruitmentFrame:CreatePlayerEntry(playerData, yOffset)
         else
             selectedPlayers[playerData.name] = nil
         end
+        cb.fgrPaint()
+        paintRow()
         RecruitmentFrame:UpdateSelectionCount()
         RecruitmentFrame:UpdateSendInviteButtonState()
     end)
     playerCheckboxes[playerData.name] = checkbox
 
-    if isCompact then
-        -- COMPACT: Name (class-colored) + Level right-aligned
-        local nameText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        nameText:SetPoint("LEFT", entry, "LEFT", 22, 0)
-        nameText:SetPoint("RIGHT", entry, "RIGHT", -30, 0)
-        nameText:SetJustifyH("LEFT")
-        local displayName = playerData.name
-        if displayName:find("-") then
-            displayName = displayName:match("([^-]+)")
+    -- Clicking anywhere on the row toggles selection: the checkbox is a target
+    -- of 14px, the row is the whole width.
+    entry:RegisterForClicks("LeftButtonUp")
+    entry:SetScript("OnClick", function()
+        checkbox:SetChecked(not checkbox:GetChecked())
+        if checkbox:GetChecked() then
+            selectedPlayers[playerData.name] = playerData
+        else
+            selectedPlayers[playerData.name] = nil
         end
-        nameText:SetText(displayName)
+        paintRow()
+        RecruitmentFrame:UpdateSelectionCount()
+        RecruitmentFrame:UpdateSendInviteButtonState()
+    end)
+    entry:SetScript("OnEnter", function(e)
+        e.fgrHovered = true
+        paintRow()
+        RecruitmentFrame:ShowPlayerTooltip(e, playerData)
+    end)
+    entry:SetScript("OnLeave", function(e)
+        e.fgrHovered = false
+        paintRow()
+        GameTooltip:Hide()
+    end)
+
+    local displayName = playerData.name
+    if displayName:find("-") then displayName = displayName:match("([^-]+)") end
+
+    if isCompact then
+        local nameText = T:Label(entry, displayName, nil, T.type.caption)
+        nameText:SetPoint("LEFT", entry, "LEFT", 26, 0)
+        nameText:SetPoint("RIGHT", entry, "RIGHT", -28, 0)
+        nameText:SetWordWrap(false)
         nameText:SetTextColor(classColor.r, classColor.g, classColor.b)
 
-        local levelText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        levelText:SetPoint("RIGHT", entry, "RIGHT", -4, 0)
-        levelText:SetText(tostring(playerData.level))
-        local mr, mg, mb = tc("muted")
-        levelText:SetTextColor(mr, mg, mb)
-
-        -- Tooltip on hover
-        entry:EnableMouse(true)
-        entry:SetScript("OnEnter", function(e)
-            RecruitmentFrame:ShowPlayerTooltip(e, playerData)
-        end)
-        entry:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        local levelText = T:Label(entry, tostring(playerData.level), "textSoft", T.type.caption)
+        levelText:SetPoint("RIGHT", entry, "RIGHT", -6, 0)
     else
-        -- NORMAL: Name | Level | Class | Zone | Race | RIO
-        local nameFrame = CreateFrame("Frame", nil, entry)
-        nameFrame:SetPoint("LEFT", entry, "LEFT", 24, 0)
-        nameFrame:SetSize(160, entryHeight)
-        nameFrame:EnableMouse(true)
-
-        local nameText = nameFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        nameText:SetPoint("LEFT", nameFrame, "LEFT", 0, 0)
-        nameText:SetText(playerData.name)
+        local nameText = T:Label(entry, displayName, nil, T.type.body)
+        nameText:SetPoint("LEFT", entry, "LEFT", COLUMNS.name, 0)
+        nameText:SetWidth(COLUMNS.level - COLUMNS.name - 8)
+        nameText:SetWordWrap(false)
         nameText:SetTextColor(classColor.r, classColor.g, classColor.b)
 
-        nameFrame:SetScript("OnEnter", function(e)
-            RecruitmentFrame:ShowPlayerTooltip(e, playerData)
-        end)
-        nameFrame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        local levelText = T:Label(entry, tostring(playerData.level), "textMain", T.type.body)
+        levelText:SetPoint("LEFT", entry, "LEFT", COLUMNS.level, 0)
 
-        local levelText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        levelText:SetPoint("LEFT", entry, "LEFT", 186, 0)
-        levelText:SetText(tostring(playerData.level))
-        levelText:SetTextColor(0.9, 0.9, 0.9)
+        local classText = T:Label(entry, playerData.class or "", nil, T.type.caption)
+        classText:SetPoint("LEFT", entry, "LEFT", COLUMNS.class, 0)
+        classText:SetTextColor(classColor.r, classColor.g, classColor.b, 0.8)
 
-        local classText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        classText:SetPoint("LEFT", entry, "LEFT", 226, 0)
-        classText:SetText(playerData.class)
-        classText:SetTextColor(classColor.r, classColor.g, classColor.b, 0.85)
-
-        local zoneText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        zoneText:SetPoint("LEFT", entry, "LEFT", 356, 0)
         local zoneName = playerData.zone or ""
-        if #zoneName > 20 then zoneName = zoneName:sub(1, 19) .. ".." end
-        zoneText:SetText(zoneName)
-        local mr, mg, mb = tc("muted")
-        zoneText:SetTextColor(mr, mg, mb)
+        local zoneText = T:Label(entry, zoneName, "textMuted", T.type.caption)
+        zoneText:SetPoint("LEFT", entry, "LEFT", COLUMNS.zone, 0)
+        zoneText:SetWidth(COLUMNS.race - COLUMNS.zone - 8)
+        zoneText:SetWordWrap(false)
 
-        local raceText = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        raceText:SetPoint("LEFT", entry, "LEFT", 516, 0)
-        raceText:SetText(playerData.race or "")
-        raceText:SetTextColor(mr, mg, mb)
+        local raceText = T:Label(entry, playerData.race or "", "textSoft", T.type.caption)
+        raceText:SetPoint("LEFT", entry, "LEFT", COLUMNS.race, 0)
+        raceText:SetWidth(90)
+        raceText:SetWordWrap(false)
 
-        -- RIO button
-        local rioBtn = CreateFrame("Button", nil, entry, "UIPanelButtonTemplate")
-        rioBtn:SetPoint("RIGHT", entry, "RIGHT", -4, 0)
-        rioBtn:SetSize(30, 16)
-        rioBtn:SetText("RIO")
-        styleBtn(rioBtn, false, 9)
+        local rioBtn = T:Button(entry, "RIO", "ghost", { width = 34, height = 16, fontSize = T.type.micro })
+        rioBtn:SetPoint("RIGHT", entry, "RIGHT", COLUMNS.rio, 0)
+        rioBtn.fgrTooltip = "Copy this player's Raider.IO link"
         rioBtn:SetScript("OnClick", function()
             local url = RecruitmentFrame:BuildRaiderIoUrl(playerData)
             if not url then return end
@@ -1204,6 +1134,7 @@ function RecruitmentFrame:CreatePlayerEntry(playerData, yOffset)
         end)
     end
 
+    paintRow()
     self:UpdateSendInviteButtonState()
     return entry
 end
@@ -1700,18 +1631,29 @@ end
 function RecruitmentFrame:UpdateSelectionCount()
     local selectedCount = 0
     for _ in pairs(selectedPlayers) do selectedCount = selectedCount + 1 end
-    if self.selectAllCheck and self.selectAllCheck.Text then
-        self.selectAllCheck.Text:SetText("Select All (" .. selectedCount .. ")")
+    if self.selectionBadge then
+        self.selectionBadge:SetBadgeText(selectedCount .. " selected")
+        self.selectionBadge:SetShown(selectedCount > 0)
     end
 end
 
+-- Status is a muted line plus a coloured dot; the text itself stays readable
+-- instead of turning into a block of saturated red or green.
+local STATUS_TONES = {
+    red = "danger", orange = "warning", yellow = "warning",
+    green = "success", white = "textMuted",
+}
+
 function RecruitmentFrame:UpdateStatus(text, color)
     if not self.statusText then return end
-    self.statusText:SetText(text)
-    if color == "red" then self.statusText:SetTextColor(1, 0, 0)
-    elseif color == "yellow" or color == "orange" then self.statusText:SetTextColor(1, 1, 0)
-    elseif color == "green" then self.statusText:SetTextColor(0, 1, 0)
-    else self.statusText:SetTextColor(1, 1, 1) end
+    self.statusText:SetText(text or "")
+    local tone = STATUS_TONES[color or "white"] or "textMuted"
+    if self.statusDot then
+        local r, g, b = T:GetColor(tone)
+        self.statusDot:SetColorTexture(r, g, b, 1)
+    end
+    local tr, tg, tb = T:GetColor(color and color ~= "white" and tone or "textMuted")
+    self.statusText:SetTextColor(tr, tg, tb)
 end
 
 function RecruitmentFrame:UpdateInviteButtonLabel()
@@ -1772,41 +1714,8 @@ function RecruitmentFrame:RefreshUI()
     self:UpdateClassFilterDisplay()
     self:UpdateNextClassIndicator()
     if self.messageDropdown then
-        local ref = self
         UIDropDownMenu_Initialize(self.messageDropdown, function(dropdown, level)
-            local messageList = ref:GetMessageList()
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = "Invite Only (No Message)"
-            info.value = "invite_only"
-            info.func = function()
-                UIDropDownMenu_SetSelectedValue(ref.messageDropdown, "invite_only")
-                ref.selectedMessage = nil
-                ref.inviteMode = "invite_only"
-                ref:UpdateInviteButtonLabel()
-            end
-            UIDropDownMenu_AddButton(info, level)
-            for i, msgData in ipairs(messageList) do
-                local invInfo = UIDropDownMenu_CreateInfo()
-                invInfo.text = "Invite + Msg: " .. (msgData.desc or ("Message " .. i))
-                invInfo.value = "invite_and_message_" .. i
-                invInfo.func = function()
-                    UIDropDownMenu_SetSelectedValue(ref.messageDropdown, "invite_and_message_" .. i)
-                    ref.selectedMessage = msgData
-                    ref.inviteMode = "invite_and_message"
-                    ref:UpdateInviteButtonLabel()
-                end
-                UIDropDownMenu_AddButton(invInfo, level)
-                local msgInfo = UIDropDownMenu_CreateInfo()
-                msgInfo.text = "Message Only: " .. (msgData.desc or ("Message " .. i))
-                msgInfo.value = "just_message_" .. i
-                msgInfo.func = function()
-                    UIDropDownMenu_SetSelectedValue(ref.messageDropdown, "just_message_" .. i)
-                    ref.selectedMessage = msgData
-                    ref.inviteMode = "just_message"
-                    ref:UpdateInviteButtonLabel()
-                end
-                UIDropDownMenu_AddButton(msgInfo, level)
-            end
+            self:BuildModeMenu(self.messageDropdown, level)
         end)
     end
     self:UpdatePlayerCount()
