@@ -223,3 +223,12 @@ StaticPopupDialogs["FGR_URL_COPY"] = {
         end
     end,
 }
+-- Guild invite shim: C_GuildInfo.Invite is the modern API; the GuildInvite global
+-- is not present on every client this addon supports.
+function ns.GuildInvite(playerName)
+    if C_GuildInfo and C_GuildInfo.Invite then
+        C_GuildInfo.Invite(playerName)
+    elseif GuildInvite then
+        GuildInvite(playerName)
+    end
+end

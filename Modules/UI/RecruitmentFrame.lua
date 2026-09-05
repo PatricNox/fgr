@@ -104,6 +104,7 @@ function RecruitmentFrame:ProcessWhoResults_Polling()
             if playerInfo.name and playerInfo.name ~= UnitName("player") then
                 if self:PassesFilters(playerInfo) then
                     foundPlayers[playerInfo.name] = playerInfo
+                    selectedPlayers[playerInfo.name] = playerInfo
                     validCount = validCount + 1
                 else
                     filteredCount = filteredCount + 1
@@ -114,6 +115,8 @@ function RecruitmentFrame:ProcessWhoResults_Polling()
         self.sessionStats.playersScanned = (self.sessionStats.playersScanned or 0) + #results
         self:RefreshPlayerList()
         self:UpdatePlayerCount()
+        self:UpdateSelectionCount()
+        self:UpdateSendInviteButtonState()
         self:UpdateSessionStats()
 
         local statusMsg = string.format("Found %d players (%d filtered)", validCount, filteredCount)
@@ -141,12 +144,6 @@ function RecruitmentFrame:ReEnableScanButton()
     if self.scanButton then
         self.scanButton:SetEnabled(true)
         self.scanButton:SetText("Scan")
-        if self.isClassScanMode and self.selectedClassList and #self.selectedClassList > 0 then
-            local nextIndex = (self.currentClassIndex or 1) + 1
-            if nextIndex > #self.selectedClassList then
-                self:ResetClassScanMode()
-            end
-        end
         self:UpdateNextClassIndicator()
     end
     self:StartCooldownTimer()
@@ -158,7 +155,10 @@ function RecruitmentFrame:ExecuteWhoQuery(query, className)
 
     local finalQuery = query
     if className then
-        finalQuery = "c-" .. string.lower(className) .. " " .. minLevel .. "-" .. maxLevel
+        local token = string.lower(className)
+        -- Multi-word classes (death knight, demon hunter) must be quoted in a WHO filter
+        if token:find(" ") then token = '"' .. token .. '"' end
+        finalQuery = "c-" .. token .. " " .. minLevel .. "-" .. maxLevel
     end
 
     self:SendActualWhoQuery(finalQuery, className)
@@ -197,17 +197,9 @@ function RecruitmentFrame:StartPlayerScan()
     -- Class scan mode: cycle through selected classes
     if self.isClassScanMode and self.selectedClassList and #self.selectedClassList > 0 then
         local classIndex = self.currentClassIndex or 1
-        if classIndex > #self.selectedClassList then
-            classIndex = 1
-            self:ResetClassScanMode()
-            self:UpdateStatus("Class scan cycle complete", "green")
-            isScanning = false
-            if self.scanButton then
-                self.scanButton:SetEnabled(true)
-                self.scanButton:SetText("Scan")
-            end
-            return
-        end
+        -- Wrap around instead of dropping out of class scan mode, so repeated
+        -- scans keep rotating through the selected classes.
+        if classIndex > #self.selectedClassList then classIndex = 1 end
 
         local className = self.selectedClassList[classIndex]
         self.currentScanClass = className
@@ -333,6 +325,8 @@ function RecruitmentFrame:UpdateClassFilterDisplay()
     local enabled = self.classFilterCheck and self.classFilterCheck:GetChecked()
     if not enabled then
         self.classFilterInfo:SetText("")
+        self.isClassScanMode = false
+        self.classListKey = nil
         return
     end
 
@@ -347,14 +341,21 @@ function RecruitmentFrame:UpdateClassFilterDisplay()
     end
 
     if #classes > 0 then
+        table.sort(classes) -- pairs() order is undefined; keep the cycle stable across calls
         self.classFilterInfo:SetText("Classes: " .. table.concat(classes, ", "))
-        -- Set up class scan mode
+        -- Set up class scan mode. Only rewind the cycle when the class set actually
+        -- changed, otherwise every cooldown tick would restart it at the first class.
+        local key = table.concat(classes, ",")
+        if key ~= self.classListKey then
+            self.classListKey = key
+            self.currentClassIndex = 1
+        end
         self.selectedClassList = classes
         self.isClassScanMode = true
-        self.currentClassIndex = 1
     else
         self.classFilterInfo:SetText("No classes selected")
         self.isClassScanMode = false
+        self.classListKey = nil
     end
 end
 
@@ -362,11 +363,8 @@ function RecruitmentFrame:UpdateNextClassIndicator()
     if not self.nextClassText then return end
     if self.isClassScanMode and self.selectedClassList and #self.selectedClassList > 0 then
         local idx = self.currentClassIndex or 1
-        if idx <= #self.selectedClassList then
-            self.nextClassText:SetText("Next: " .. self.selectedClassList[idx])
-        else
-            self.nextClassText:SetText("Cycle done")
-        end
+        if idx > #self.selectedClassList then idx = 1 end
+        self.nextClassText:SetText("Next: " .. self.selectedClassList[idx])
     else
         self.nextClassText:SetText("")
     end
@@ -1536,16 +1534,19 @@ function RecruitmentFrame:ProcessInviteQueue(inviteQueue)
     if #inviteQueue == 0 then
         self:UpdateStatus("All invites processed", "green")
         self:UpdateSessionStats()
+        self:UpdateSelectionCount()
+        self:UpdateSendInviteButtonState()
+        self:UpdateActionButtonVisibility()
         return
     end
 
     local player = table.remove(inviteQueue, 1)
 
     if self.inviteMode == "invite_only" then
-        GuildInvite(player.name)
+        ns.GuildInvite(player.name)
         self.sessionStats.invitesSent = (self.sessionStats.invitesSent or 0) + 1
     elseif self.inviteMode == "invite_and_message" then
-        GuildInvite(player.name)
+        ns.GuildInvite(player.name)
         self.sessionStats.invitesSent = (self.sessionStats.invitesSent or 0) + 1
         if self.selectedMessage and self.selectedMessage.message then
             self:SendWhisper(self:FormatMessage(self.selectedMessage.message, player.name), player.name)
@@ -1563,6 +1564,8 @@ function RecruitmentFrame:ProcessInviteQueue(inviteQueue)
     foundPlayers[player.name] = nil
     selectedPlayers[player.name] = nil
     self:UpdateSessionStats()
+    self:UpdateSelectionCount()
+    self:UpdateSendInviteButtonState()
     local delay = tonumber((ns.g and ns.g.timeBetweenMessages) or "0.2")
     C_Timer.After(delay, function() self:ProcessInviteQueue(inviteQueue) end)
     self:RefreshPlayerList()
@@ -1736,13 +1739,8 @@ function RecruitmentFrame:StartCooldownTimer()
             self.scanButton:SetEnabled(true)
             self.cooldownText:SetText("")
             self.scanButton:SetText("Scan")
-            if self.isClassScanMode and self.selectedClassList and #self.selectedClassList > 0 then
-                if (self.currentClassIndex or 1) + 1 > #self.selectedClassList then
-                    self:ResetClassScanMode()
-                end
-            end
-            self:UpdateNextClassIndicator()
             self:UpdateClassFilterDisplay()
+            self:UpdateNextClassIndicator()
         end
     end
     updateCooldown()
@@ -1753,6 +1751,18 @@ function RecruitmentFrame:ResetClassScanMode()
     self.currentClassIndex = 1
     self.selectedClassList = {}
     self.currentScanClass = nil
+    self.classListKey = nil -- let UpdateClassFilterDisplay re-arm the cycle from the start
+end
+
+-- Called by the settings panel when class/level options change
+function RecruitmentFrame:RefreshFromSettings()
+    if not self.isInitialized then return end
+    if self.classFilterCheck then
+        self.classFilterCheck:SetChecked((ns.pSettings and ns.pSettings.enableClassFilter) or false)
+    end
+    self:UpdateLevelDisplay()
+    self:UpdateClassFilterDisplay()
+    self:UpdateNextClassIndicator()
 end
 
 function RecruitmentFrame:RefreshUI()

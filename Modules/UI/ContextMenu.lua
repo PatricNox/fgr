@@ -202,7 +202,7 @@ function ContextMenu:HandleManualInvite(playerName, withMessage)
         ns.InviteManager:ManualInvite(playerName, withMessage, not withMessage, withMessage, false)
     else
         -- Fallback - just send guild invite
-        GuildInvite(playerName)
+        ns.GuildInvite(playerName)
         print("|cFF3EB9D8[FGR]|r Guild invite sent to " .. playerName)
         
         if withMessage then

@@ -369,7 +369,7 @@ function InviteManager:SendGuildInvite(playerName, skipMessage)
     self:AddToAntiSpam(playerName)
     
     -- Send the invite
-    GuildInvite(playerName)
+    ns.GuildInvite(playerName)
     
     print("|cFF3EB9D8[FGR]|r Guild invite sent to: " .. playerName)
     
